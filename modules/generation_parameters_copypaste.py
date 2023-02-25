@@ -23,7 +23,8 @@ registered_param_bindings = []
 
 
 class ParamBinding:
-    def __init__(self, paste_button, tabname, source_text_component=None, source_image_component=None, source_tabname=None, override_settings_component=None):
+    def __init__(self, paste_button, tabname, source_text_component=None, source_image_component=None,
+                 source_tabname=None, override_settings_component=None):
         self.paste_button = paste_button
         self.tabname = tabname
         self.source_text_component = source_text_component
@@ -75,7 +76,8 @@ def image_from_url_text(filedata):
 
 
 def add_paste_fields(tabname, init_img, fields, override_settings_component=None):
-    paste_fields[tabname] = {"init_img": init_img, "fields": fields, "override_settings_component": override_settings_component}
+    paste_fields[tabname] = {"init_img": init_img, "fields": fields,
+                             "override_settings_component": override_settings_component}
 
     # backwards compatibility for existing extensions
     import modules.ui
@@ -85,10 +87,15 @@ def add_paste_fields(tabname, init_img, fields, override_settings_component=None
         modules.ui.img2img_paste_fields = fields
 
 
-def create_buttons(tabs_list):
+def create_buttons(tabs_list, label_list=None):
+    if label_list is None:
+        label_list = []
     buttons = {}
+    idx = 0
     for tab in tabs_list:
-        buttons[tab] = gr.Button(f"Send to {tab}", elem_id=f"{tab}_tab")
+        buttons[tab] = gr.Button(f"发送到{label_list[idx] if len(label_list) > idx else tab}",
+                                 elem_id=f"{tab}_tab")
+        idx = idx + 1
     return buttons
 
 
@@ -98,7 +105,9 @@ def bind_buttons(buttons, send_image, send_generate_info):
         source_text_component = send_generate_info if isinstance(send_generate_info, gr.components.Component) else None
         source_tabname = send_generate_info if isinstance(send_generate_info, str) else None
 
-        register_paste_params_button(ParamBinding(paste_button=button, tabname=tabname, source_text_component=source_text_component, source_image_component=send_image, source_tabname=source_tabname))
+        register_paste_params_button(
+            ParamBinding(paste_button=button, tabname=tabname, source_text_component=source_text_component,
+                         source_image_component=send_image, source_tabname=source_tabname))
 
 
 def register_paste_params_button(binding: ParamBinding):
@@ -110,10 +119,13 @@ def connect_paste_params_buttons():
     for binding in registered_param_bindings:
         destination_image_component = paste_fields[binding.tabname]["init_img"]
         fields = paste_fields[binding.tabname]["fields"]
-        override_settings_component = binding.override_settings_component or paste_fields[binding.tabname]["override_settings_component"]
+        override_settings_component = binding.override_settings_component or paste_fields[binding.tabname][
+            "override_settings_component"]
 
-        destination_width_component = next(iter([field for field, name in fields if name == "Size-1"] if fields else []), None)
-        destination_height_component = next(iter([field for field, name in fields if name == "Size-2"] if fields else []), None)
+        destination_width_component = next(
+            iter([field for field, name in fields if name == "Size-1"] if fields else []), None)
+        destination_height_component = next(
+            iter([field for field, name in fields if name == "Size-2"] if fields else []), None)
 
         if binding.source_image_component and destination_image_component:
             if isinstance(binding.source_image_component, gr.Gallery):
@@ -127,17 +139,22 @@ def connect_paste_params_buttons():
                 fn=func,
                 _js=jsfunc,
                 inputs=[binding.source_image_component],
-                outputs=[destination_image_component, destination_width_component, destination_height_component] if destination_width_component else [destination_image_component],
+                outputs=[destination_image_component, destination_width_component,
+                         destination_height_component] if destination_width_component else [
+                    destination_image_component],
             )
 
         if binding.source_text_component is not None and fields is not None:
-            connect_paste(binding.paste_button, fields, binding.source_text_component, override_settings_component, binding.tabname)
+            connect_paste(binding.paste_button, fields, binding.source_text_component, override_settings_component,
+                          binding.tabname)
 
         if binding.source_tabname is not None and fields is not None:
-            paste_field_names = ['Prompt', 'Negative prompt', 'Steps', 'Face restoration'] + (["Seed"] if shared.opts.send_seed else [])
+            paste_field_names = ['Prompt', 'Negative prompt', 'Steps', 'Face restoration'] + (
+                ["Seed"] if shared.opts.send_seed else [])
             binding.paste_button.click(
                 fn=lambda *x: x,
-                inputs=[field for field, name in paste_fields[binding.source_tabname]["fields"] if name in paste_field_names],
+                inputs=[field for field, name in paste_fields[binding.source_tabname]["fields"] if
+                        name in paste_field_names],
                 outputs=[field for field, name in fields if name in paste_field_names],
             )
 
@@ -163,7 +180,6 @@ def send_image_and_dimensions(x):
         h = gr.update()
 
     return img, w, h
-
 
 
 def find_hypernetwork_key(hypernet_name, hypernet_hash=None):
@@ -264,8 +280,8 @@ Steps: 20, Sampler: Euler a, CFG scale: 7, Seed: 965400086, Size: 512x512, Model
         v = v[1:-1] if v[0] == '"' and v[-1] == '"' else v
         m = re_imagesize.match(v)
         if m is not None:
-            res[k+"-1"] = m.group(1)
-            res[k+"-2"] = m.group(2)
+            res[k + "-1"] = m.group(1)
+            res[k + "-2"] = m.group(2)
         else:
             res[k] = v
 
@@ -289,7 +305,7 @@ Steps: 20, Sampler: Euler a, CFG scale: 7, Seed: 965400086, Size: 512x512, Model
 settings_map = {}
 
 infotext_to_setting_name_mapping = [
-    ('Clip skip', 'CLIP_stop_at_last_layers', ),
+    ('Clip skip', 'CLIP_stop_at_last_layers',),
     ('Conditional mask weight', 'inpainting_mask_weight'),
     ('Model hash', 'sd_model_checkpoint'),
     ('ENSD', 'eta_noise_seed_delta'),
@@ -398,5 +414,3 @@ def connect_paste(button, paste_fields, input_comp, override_settings_component,
         inputs=[input_comp],
         outputs=[x[0] for x in paste_fields],
     )
-
-

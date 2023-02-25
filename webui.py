@@ -1,20 +1,21 @@
+import importlib
+import logging
 import os
+import re
+import signal
 import sys
 import time
-import importlib
-import signal
-import re
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from packaging import version
 
-import logging
 logging.getLogger("xformers").addFilter(lambda record: 'A matching Triton is not available' not in record.getMessage())
 
-from modules import import_hook, errors, extra_networks, ui_extra_networks_checkpoints
+from modules import errors, extra_networks, ui_extra_networks_checkpoints
 from modules import extra_networks_hypernet, ui_extra_networks_hypernets, ui_extra_networks_textual_inversion
-from modules.call_queue import wrap_queued_call, queue_lock, wrap_gradio_gpu_call
+from modules.call_queue import wrap_queued_call, queue_lock
 
 import torch
 
@@ -23,7 +24,7 @@ if ".dev" in torch.__version__ or "+git" in torch.__version__:
     torch.__long_version__ = torch.__version__
     torch.__version__ = re.search(r'[\d.]+[\d]', torch.__version__).group(0)
 
-from modules import shared, devices, sd_samplers, upscaler, extensions, localization, ui_tempdir, ui_extra_networks
+from modules import shared, sd_samplers, upscaler, extensions, localization, ui_tempdir, ui_extra_networks
 import modules.codeformer_model as codeformer
 import modules.face_restoration
 import modules.gfpgan_model as gfpgan
@@ -44,7 +45,6 @@ import modules.ui
 from modules import modelloader
 from modules.shared import cmd_opts
 import modules.hypernetworks.hypernetwork
-
 
 if cmd_opts.server_name:
     server_name = cmd_opts.server_name
@@ -155,11 +155,15 @@ def initialize():
 
 def setup_cors(app):
     if cmd_opts.cors_allow_origins and cmd_opts.cors_allow_origins_regex:
-        app.add_middleware(CORSMiddleware, allow_origins=cmd_opts.cors_allow_origins.split(','), allow_origin_regex=cmd_opts.cors_allow_origins_regex, allow_methods=['*'], allow_credentials=True, allow_headers=['*'])
+        app.add_middleware(CORSMiddleware, allow_origins=cmd_opts.cors_allow_origins.split(','),
+                           allow_origin_regex=cmd_opts.cors_allow_origins_regex, allow_methods=['*'],
+                           allow_credentials=True, allow_headers=['*'])
     elif cmd_opts.cors_allow_origins:
-        app.add_middleware(CORSMiddleware, allow_origins=cmd_opts.cors_allow_origins.split(','), allow_methods=['*'], allow_credentials=True, allow_headers=['*'])
+        app.add_middleware(CORSMiddleware, allow_origins=cmd_opts.cors_allow_origins.split(','), allow_methods=['*'],
+                           allow_credentials=True, allow_headers=['*'])
     elif cmd_opts.cors_allow_origins_regex:
-        app.add_middleware(CORSMiddleware, allow_origin_regex=cmd_opts.cors_allow_origins_regex, allow_methods=['*'], allow_credentials=True, allow_headers=['*'])
+        app.add_middleware(CORSMiddleware, allow_origin_regex=cmd_opts.cors_allow_origins_regex, allow_methods=['*'],
+                           allow_credentials=True, allow_headers=['*'])
 
 
 def create_api(app):
@@ -191,8 +195,17 @@ def api_only():
 
     api.launch(server_name="0.0.0.0" if cmd_opts.listen else "127.0.0.1", port=cmd_opts.port if cmd_opts.port else 7861)
 
+#
+# app = FastAPI()
+#
+#
+# @app.get("/")
+# def read_main():
+#     return {"message": "This is your main app"}
+
 
 def webui():
+    # global app
     launch_api = cmd_opts.api
     initialize()
 
@@ -204,6 +217,7 @@ def webui():
 
         shared.demo = modules.ui.create_ui()
 
+        # shared.demo.favicon_path =
         if cmd_opts.gradio_queue:
             shared.demo.queue(64)
 
@@ -222,10 +236,20 @@ def webui():
             ssl_keyfile=cmd_opts.tls_keyfile,
             ssl_certfile=cmd_opts.tls_certfile,
             debug=cmd_opts.gradio_debug,
+            # debug=True,
             auth=[tuple(cred.split(':')) for cred in gradio_auth_creds] if gradio_auth_creds else None,
             inbrowser=cmd_opts.autolaunch,
-            prevent_thread_lock=True
+            prevent_thread_lock=True,
+            favicon_path=os.path.abspath("logo.png")
         )
+
+        # app = gr.mount_gradio_app(app, shared.demo, path='/app')
+
+        # io = gr.Interface(lambda x: "Hello, " + x + "!", "textbox", "textbox")
+        # app = gr.mount_gradio_app(app, io, path='/test')
+
+        # uvicorn.run(app="webui:app", reload=True, host="localhost", port=5002)
+
         # after initial launch, disable --autolaunch for subsequent restarts
         cmd_opts.autolaunch = False
 

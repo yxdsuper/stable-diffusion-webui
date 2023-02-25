@@ -36,7 +36,7 @@ def save_files(js_data, images, do_make_zip, index):
     filenames = []
     fullfns = []
 
-    #quick dictionary to class object conversion. Its necessary due apply_filename_pattern requiring it
+    # quick dictionary to class object conversion. Its necessary due apply_filename_pattern requiring it
     class MyObject:
         def __init__(self, d=None):
             if d is not None:
@@ -51,7 +51,8 @@ def save_files(js_data, images, do_make_zip, index):
     extension: str = shared.opts.samples_format
     start_index = 0
 
-    if index > -1 and shared.opts.save_selected_only and (index >= data["index_of_first_image"]):  # ensures we are looking at a specific non-grid picture, and we have save_selected_only
+    if index > -1 and shared.opts.save_selected_only and (index >= data[
+        "index_of_first_image"]):  # ensures we are looking at a specific non-grid picture, and we have save_selected_only
 
         images = [images[index]]
         start_index = index
@@ -62,7 +63,8 @@ def save_files(js_data, images, do_make_zip, index):
         at_start = file.tell() == 0
         writer = csv.writer(file)
         if at_start:
-            writer.writerow(["prompt", "seed", "width", "height", "sampler", "cfgs", "steps", "filename", "negative_prompt"])
+            writer.writerow(
+                ["prompt", "seed", "width", "height", "sampler", "cfgs", "steps", "filename", "negative_prompt"])
 
         for image_index, filedata in enumerate(images, start_index):
             image = image_from_url_text(filedata)
@@ -70,7 +72,10 @@ def save_files(js_data, images, do_make_zip, index):
             is_grid = image_index < p.index_of_first_image
             i = 0 if is_grid else (image_index - p.index_of_first_image)
 
-            fullfn, txt_fullfn = modules.images.save_image(image, path, "", seed=p.all_seeds[i], prompt=p.all_prompts[i], extension=extension, info=p.infotexts[image_index], grid=is_grid, p=p, save_to_dirs=save_to_dirs)
+            fullfn, txt_fullfn = modules.images.save_image(image, path, "", seed=p.all_seeds[i],
+                                                           prompt=p.all_prompts[i], extension=extension,
+                                                           info=p.infotexts[image_index], grid=is_grid, p=p,
+                                                           save_to_dirs=save_to_dirs)
 
             filename = os.path.relpath(fullfn, path)
             filenames.append(filename)
@@ -79,7 +84,9 @@ def save_files(js_data, images, do_make_zip, index):
                 filenames.append(os.path.basename(txt_fullfn))
                 fullfns.append(txt_fullfn)
 
-        writer.writerow([data["prompt"], data["seed"], data["width"], data["height"], data["sampler_name"], data["cfg_scale"], data["steps"], filenames[0], data["negative_prompt"]])
+        writer.writerow(
+            [data["prompt"], data["seed"], data["width"], data["height"], data["sampler_name"], data["cfg_scale"],
+             data["steps"], filenames[0], data["negative_prompt"]])
 
     # Make Zip
     if do_make_zip:
@@ -130,23 +137,30 @@ Requested path was: {f}
         generation_info = None
         with gr.Column():
             with gr.Row(elem_id=f"image_buttons_{tabname}"):
-                open_folder_button = gr.Button(folder_symbol, elem_id="hidden_element" if shared.cmd_opts.hide_ui_dir_config else f'open_folder_{tabname}')
-
+                # open_folder_button = gr.Button(folder_symbol, elem_id="hidden_element" if shared.cmd_opts.hide_ui_dir_config else f'open_folder_{tabname}')
+                #
                 if tabname != "extras":
-                    save = gr.Button('Save', elem_id=f'save_{tabname}')
-                    save_zip = gr.Button('Zip', elem_id=f'save_zip_{tabname}')
+                    # save = gr.Button('Save', elem_id=f'save_{tabname}')
+                    save_zip = gr.Button('压缩', show_label=True, label='压缩', elem_id=f'save_zip_{tabname}')
 
-                buttons = parameters_copypaste.create_buttons(["img2img", "inpaint", "extras"])
+                # buttons = parameters_copypaste.create_buttons(["img2img", "inpaint", "extras"],
+                #                                               ["图片变换", "图片修改", "图片放大"])
 
-            open_folder_button.click(
-                fn=lambda: open_folder(shared.opts.outdir_samples or outdir),
-                inputs=[],
-                outputs=[],
-            )
+                buttons = parameters_copypaste.create_buttons(["img2img", "extras"],
+                                                              ["图片变换", "图片放大"])
+
+                # buttons = parameters_copypaste.create_buttons(["图片变换", "图片修改", "图片放大"])
+
+            # open_folder_button.click(
+            #     fn=lambda: open_folder(shared.opts.outdir_samples or outdir),
+            #     inputs=[],
+            #     outputs=[],
+            # )
 
             if tabname != "extras":
                 with gr.Row():
-                    download_files = gr.File(None, file_count="multiple", interactive=False, show_label=False, visible=False, elem_id=f'download_files_{tabname}')
+                    download_files = gr.File(None, file_count="multiple", interactive=False, show_label=False,
+                                             visible=False, elem_id=f'download_files_{tabname}')
 
                 with gr.Group():
                     html_info = gr.HTML(elem_id=f'html_info_{tabname}')
@@ -162,21 +176,21 @@ Requested path was: {f}
                             outputs=[html_info, html_info],
                         )
 
-                    save.click(
-                        fn=call_queue.wrap_gradio_call(save_files),
-                        _js="(x, y, z, w) => [x, y, false, selected_gallery_index()]",
-                        inputs=[
-                            generation_info,
-                            result_gallery,
-                            html_info,
-                            html_info,
-                        ],
-                        outputs=[
-                            download_files,
-                            html_log,
-                        ],
-                        show_progress=False,
-                    )
+                    # save.click(
+                    #     fn=call_queue.wrap_gradio_call(save_files),
+                    #     _js="(x, y, z, w) => [x, y, false, selected_gallery_index()]",
+                    #     inputs=[
+                    #         generation_info,
+                    #         result_gallery,
+                    #         html_info,
+                    #         html_info,
+                    #     ],
+                    #     outputs=[
+                    #         download_files,
+                    #         html_log,
+                    #     ],
+                    #     show_progress=False,
+                    # )
 
                     save_zip.click(
                         fn=call_queue.wrap_gradio_call(save_files),
@@ -200,7 +214,8 @@ Requested path was: {f}
 
             for paste_tabname, paste_button in buttons.items():
                 parameters_copypaste.register_paste_params_button(parameters_copypaste.ParamBinding(
-                    paste_button=paste_button, tabname=paste_tabname, source_tabname="txt2img" if tabname == "txt2img" else None, source_image_component=result_gallery
+                    paste_button=paste_button, tabname=paste_tabname,
+                    source_tabname="txt2img" if tabname == "txt2img" else None, source_image_component=result_gallery
                 ))
 
             return result_gallery, generation_info if tabname != "extras" else html_info_x, html_info, html_log

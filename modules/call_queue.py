@@ -84,9 +84,9 @@ def wrap_gradio_call(func, extra_outputs=None, add_stats=False):
         elapsed = time.perf_counter() - t
         elapsed_m = int(elapsed // 60)
         elapsed_s = elapsed % 60
-        elapsed_text = f"{elapsed_s:.2f}s"
+        elapsed_text = f"{elapsed_s:.2f}秒"
         if elapsed_m > 0:
-            elapsed_text = f"{elapsed_m}m "+elapsed_text
+            elapsed_text = f"{elapsed_m}分 "+elapsed_text
 
         if run_memmon:
             mem_stats = {k: -(v//-(1024*1024)) for k, v in shared.mem_mon.stop().items()}
@@ -101,7 +101,7 @@ def wrap_gradio_call(func, extra_outputs=None, add_stats=False):
             vram_html = ''
 
         # last item is always HTML
-        res[-1] += f"<div class='performance'><p class='time'>Time taken: <wbr>{elapsed_text}</p>{vram_html}</div>"
+        res[-1] += f"<div class='performance'><p class='time'>消耗时间: <wbr>{elapsed_text}</p>{vram_html}</div>"
 
         return tuple(res)
 
