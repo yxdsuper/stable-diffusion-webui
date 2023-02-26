@@ -977,3 +977,164 @@ footer {
 [id*='_prompt_container'] > div {
     margin: 0 !important;
 }
+
+
+.gradio-container {
+    /*background-image: url('./file=html/bg.png');*/
+    /*background-image: url("./bg.png");*/
+    background-size: cover;
+      background-color: #0f1c4a;
+    background-position: center center;
+}
+
+.gradio-container--main {
+    background-image: none !important;
+    /*background-color: #4e5983;*/
+    background-color: #0f1c4a;
+}
+
+.gradio-container--main select.gr-box,
+.gradio-container--main input.gr-box {
+    /*background-color: #4e5983;*/
+    background-color: #414c75 !important;
+    color: #fff;
+}
+
+.gr-check-radio--main .gr-box {
+    background-color: #414c75 !important;
+}
+
+/*.gr-check-radio--main*/
+.gr-block, .gr-form {
+    /*background-color: #414c75;*/
+    background-color: transparent !important;
+}
+
+#txt2img_prompt, #txt2img_prompt textarea,
+#txt2img_neg_prompt, #txt2img_neg_prompt textarea {
+    background-color: #414c75;
+    border: none;
+    color: #fff;
+}
+
+#txt2img_neg_prompt {
+    /*margin-top: 20px;*/
+}
+
+
+.login-dialog {
+    background-image: url('./file=html/login.png');
+    background-size: 100% auto;
+    background-position: center center;
+}
+
+.login-dialog .bg-gray-200 {
+    background-color: transparent !important;
+}
+
+.login-dialog .gr-form {
+    flex-direction: column !important;
+}
+
+.\!p-8 {
+    width: 529px;
+    height: 349px;
+    padding-top: 120px;
+    /*padding: 2rem !important*/
+}
+
+.login-dialog div.gr-box {
+    background-color: transparent !important;
+    padding: 0;
+
+}
+
+.login-dialog div.gr-box label {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.login-dialog input.gr-box {
+    background-color: transparent !important;
+    /*background-color: red !important;*/
+    width: 220px;
+    margin-left: 30px;
+    height: 34px;
+    color: #fff;
+    display: block;
+}
+
+.login-dialog .gr-button {
+    margin: 0 auto;
+    display: block;
+    margin-top: 10px;
+    width: 270px;
+    height: 35px;
+    /*background-color: red;*/
+    line-height: 15px;
+}
+
+.login-dialog div.gr-box:first-child {
+    margin-bottom: 12px;
+}
+
+.login-dialog
+.text-gray-500 {
+    color: #fff !important;
+}
+
+.login-dialog input {
+    border: none;
+}
+
+.login-dialog .text-gray-500 {
+    display: none;
+}
+
+.login-dialog .border {
+    border: none;
+}
+
+#lightboxModal {
+    display: none;
+}
+
+#setting_sd_model_checkpoint .text-gray-500, #setting_sd_model_checkpoint .gr-box {
+    background-color: #414c75;
+    color: #fff;
+}
+
+.tabs button.bg-white {
+    background-color: #0f1c4a;
+    color: #fff;
+}
+
+button.text-gray-400 {
+    color: #fff;
+}
+
+.gr-input-label, .gr-input {
+    background-color: #414c75;
+    color: #fff;
+    background-image: none;
+}
+
+.text-gray-700 {
+    color: #fff;
+}
+
+.gr-block.gr-box span.text-gray-500 {
+    box-shadow: none !important;
+    background: none !important;
+    color: #fff;
+}
+
+.gr-panel {
+    background-color: #414c75;
+    color: #fff;
+    background-image: none;
+}
+#logoff{
+    /*width: 60px;*/
+}

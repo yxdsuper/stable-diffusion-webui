@@ -474,6 +474,7 @@ def create_ui():
     import modules.img2img
     import modules.txt2img
 
+    reload_style()
     reload_javascript()
 
     parameters_copypaste.reset()
@@ -482,7 +483,9 @@ def create_ui():
     modules.scripts.scripts_txt2img.initialize_scripts(is_img2img=False)
 
     with gr.Blocks(analytics_enabled=False) as txt2img_interface:
-        txt2img_prompt, txt2img_prompt_styles, txt2img_negative_prompt, submit, _, _, txt2img_prompt_style_apply, txt2img_save_style, txt2img_paste, extra_networks_button, token_counter, token_button, negative_token_counter, negative_token_button = create_toprow(
+        txt2img_prompt, txt2img_prompt_styles, txt2img_negative_prompt, submit, _, _, \
+        txt2img_prompt_style_apply, txt2img_save_style, txt2img_paste, extra_networks_button, \
+        token_counter, token_button, negative_token_counter, negative_token_button = create_toprow(
             is_img2img=False)
 
         dummy_component = gr.Label(visible=False)
@@ -1810,10 +1813,18 @@ def create_ui():
     # interfaces += [(extensions_interface, "Extensions", "extensions")]
 
     with gr.Blocks(css=css, analytics_enabled=False, title="梦幻景设") as demo:
-        with gr.Row(elem_id="quicksettings", variant="compact"):
-            for i, k, item in sorted(quicksettings_list, key=lambda x: quicksettings_names.get(x[1], x[0])):
-                component = create_setting_component(k, is_quicksettings=True)
-                component_dict[k] = component
+        with gr.Row().style(equal_height=False):
+            with gr.Column(scale=30):
+                with gr.Row(elem_id="quicksettings", variant="compact"):
+                    for i, k, item in sorted(quicksettings_list, key=lambda x: quicksettings_names.get(x[1], x[0])):
+                        component = create_setting_component(k, is_quicksettings=True)
+                        component_dict[k] = component
+            with gr.Column(scale=1):
+                logoff_btn = gr.Button('退出登录', elem_id='logoff', visible=True)
+                logoff_btn.click(
+                    fn=None,
+                    _js='quit_login'
+                )
 
         parameters_copypaste.connect_paste_params_buttons()
 
@@ -1992,9 +2003,15 @@ def create_ui():
     return demo
 
 
-def reload_javascript():
-    head = f'<script type="text/javascript" src="file={os.path.abspath("script.js")}?{os.path.getmtime("script.js")}"></script>\n'
+def reload_style():
+    pass
 
+
+def reload_javascript():
+    head = f'<link rel="stylesheet" href="file={os.path.abspath("login.css")}?{os.path.getmtime("login.css")}"/>\n'
+    head += f'<script type="text/javascript" src="file={os.path.abspath("script.js")}?{os.path.getmtime("script.js")}"></script>\n'
+
+    shared.opts.localization = 'zh_CN'
     inline = f"{localization.localization_js(shared.opts.localization)};"
     if cmd_opts.theme is not None:
         inline += f"set_theme('{cmd_opts.theme}');"
