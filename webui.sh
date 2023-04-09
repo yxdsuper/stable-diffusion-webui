@@ -82,7 +82,7 @@ printf "\e[1m\e[34mTested on Debian 11 (Bullseye)\e[0m"
 printf "\n%s\n" "${delimiter}"
 
 # Do not run as root
-if [[ $(id -u) -eq 0 && can_run_as_root -eq 0 ]]
+if [[ $(id -u) -eq 1 && can_run_as_root -eq 0 ]]
 then
     printf "\n%s\n" "${delimiter}"
     printf "\e[1m\e[31mERROR: This script must not be launched as root, aborting...\e[0m"
