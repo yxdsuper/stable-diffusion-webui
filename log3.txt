@@ -1,0 +1,122 @@
+Launching API server with arguments: --nowebui --api --medvram --always-batch-cond-uncond --port 8102
+No module 'xformers'. Proceeding without it.
+[AddNet] Updating model hashes...
+  0%|          | 0/6 [00:00<?, ?it/s]100%|██████████| 6/6 [00:00<00:00, 7938.75it/s]
+[AddNet] Updating model hashes...
+  0%|          | 0/6 [00:00<?, ?it/s]100%|██████████| 6/6 [00:00<00:00, 7235.72it/s]
+INFO:     Started server process [2569]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8102 (Press CTRL+C to quit)
+Loading weights [68f2a15a5e] from /root/stable-diffusion-webui/models/Stable-diffusion/抽象插画风.ckpt
+Creating model from config: /root/stable-diffusion-webui/configs/v1-inference.yaml
+LatentDiffusion: Running in eps-prediction mode
+DiffusionWrapper has 859.52 M params.
+Applying cross attention optimization (Doggettx).
+Textual inversion embeddings loaded(0): 
+Model loaded in 2.5s (load weights from disk: 0.7s, create model: 0.4s, apply weights to model: 0.3s, apply half(): 0.2s, load VAE: 0.8s).
+Startup time: 6.1s (import torch: 0.9s, import gradio: 0.7s, import ldm: 0.4s, other imports: 0.5s, setup codeformer: 0.2s, load scripts: 0.8s, load SD checkpoint: 2.5s).
+INFO:     127.0.0.1:57222 - "GET /sdapi/v1/progress HTTP/1.0" 200 OK
+INFO:     127.0.0.1:57238 - "GET /sdapi/v1/progress HTTP/1.0" 200 OK
+INFO:     127.0.0.1:57250 - "GET /sdapi/v1/progress HTTP/1.0" 200 OK
+INFO:     127.0.0.1:57252 - "GET /sdapi/v1/progress HTTP/1.0" 200 OK
+INFO:     127.0.0.1:57294 - "GET /sdapi/v1/progress HTTP/1.0" 200 OK
+INFO:     127.0.0.1:57336 - "GET /sdapi/v1/progress HTTP/1.0" 200 OK
+INFO:     127.0.0.1:57344 - "GET /sdapi/v1/progress HTTP/1.0" 200 OK
+Checkpoint  not found; loading fallback 室内设计1.safetensors [c35782bad8]
+Loading weights [c35782bad8] from /root/stable-diffusion-webui/models/Stable-diffusion/室内设计1.safetensors
+INFO:     127.0.0.1:57352 - "GET /sdapi/v1/progress HTTP/1.0" 200 OK
+Applying cross attention optimization (Doggettx).
+Weights loaded in 0.9s (load weights from disk: 0.7s, apply weights to model: 0.2s).
+INFO:     127.0.0.1:57348 - "POST /sdapi/v1/options HTTP/1.0" 200 OK
+INFO:     127.0.0.1:57360 - "GET /sdapi/v1/progress HTTP/1.0" 200 OK
+  0%|          | 0/20 [00:00<?, ?it/s]INFO:     127.0.0.1:57364 - "GET /sdapi/v1/progress HTTP/1.0" 200 OK
+
+Total progress:   0%|          | 0/20 [00:00<?, ?it/s][A  5%|▌         | 1/20 [00:01<00:32,  1.72s/it]
+Total progress:  10%|█         | 2/20 [00:00<00:01, 13.50it/s][A 10%|█         | 2/20 [00:01<00:14,  1.25it/s] 15%|█▌        | 3/20 [00:02<00:08,  1.99it/s]
+Total progress:  20%|██        | 4/20 [00:00<00:01,  8.44it/s][A 20%|██        | 4/20 [00:02<00:05,  2.75it/s]
+Total progress:  25%|██▌       | 5/20 [00:00<00:01,  7.85it/s][A 25%|██▌       | 5/20 [00:02<00:04,  3.51it/s]
+Total progress:  30%|███       | 6/20 [00:00<00:01,  7.50it/s][A 30%|███       | 6/20 [00:02<00:03,  4.19it/s]
+Total progress:  35%|███▌      | 7/20 [00:00<00:01,  7.26it/s][A 35%|███▌      | 7/20 [00:02<00:02,  4.79it/s]
+Total progress:  40%|████      | 8/20 [00:01<00:01,  7.11it/s][AINFO:     127.0.0.1:57370 - "GET /sdapi/v1/progress HTTP/1.0" 200 OK
+ 40%|████      | 8/20 [00:02<00:02,  5.21it/s]
+Total progress:  45%|████▌     | 9/20 [00:01<00:01,  6.89it/s][A 45%|████▌     | 9/20 [00:02<00:01,  5.62it/s]
+Total progress:  50%|█████     | 10/20 [00:01<00:01,  6.86it/s][A 50%|█████     | 10/20 [00:03<00:01,  5.93it/s]
+Total progress:  55%|█████▌    | 11/20 [00:01<00:01,  6.84it/s][A 55%|█████▌    | 11/20 [00:03<00:01,  6.15it/s]
+Total progress:  60%|██████    | 12/20 [00:01<00:01,  6.77it/s][A 60%|██████    | 12/20 [00:03<00:01,  6.25it/s]
+Total progress:  65%|██████▌   | 13/20 [00:01<00:01,  6.61it/s][A 65%|██████▌   | 13/20 [00:03<00:01,  6.28it/s]INFO:     127.0.0.1:57394 - "GET /sdapi/v1/progress HTTP/1.0" 200 OK
+
+Total progress:  70%|███████   | 14/20 [00:01<00:00,  6.52it/s][A 70%|███████   | 14/20 [00:03<00:00,  6.24it/s]
+Total progress:  75%|███████▌  | 15/20 [00:02<00:00,  6.41it/s][A 75%|███████▌  | 15/20 [00:03<00:00,  6.21it/s]
+Total progress:  80%|████████  | 16/20 [00:02<00:00,  6.35it/s][A 80%|████████  | 16/20 [00:04<00:00,  6.23it/s]
+Total progress:  85%|████████▌ | 17/20 [00:02<00:00,  6.33it/s][AINFO:     127.0.0.1:57402 - "GET /sdapi/v1/progress HTTP/1.0" 200 OK
+ 85%|████████▌ | 17/20 [00:04<00:00,  6.24it/s]
+Total progress:  90%|█████████ | 18/20 [00:02<00:00,  6.30it/s][A 90%|█████████ | 18/20 [00:04<00:00,  6.30it/s]
+Total progress:  95%|█████████▌| 19/20 [00:02<00:00,  6.33it/s][A 95%|█████████▌| 19/20 [00:04<00:00,  6.34it/s]
+Total progress: 100%|██████████| 20/20 [00:02<00:00,  6.39it/s][A100%|██████████| 20/20 [00:04<00:00,  4.39it/s]
+INFO:     127.0.0.1:57406 - "GET /sdapi/v1/progress HTTP/1.0" 200 OK
+INFO:     127.0.0.1:57356 - "POST /sdapi/v1/txt2img HTTP/1.0" 200 OK
+INFO:     127.0.0.1:57448 - "GET /sdapi/v1/progress HTTP/1.0" 200 OK
+INFO:     127.0.0.1:57462 - "GET /sdapi/v1/progress HTTP/1.0" 200 OK
+INFO:     127.0.0.1:57476 - "GET /sdapi/v1/progress HTTP/1.0" 200 OK
+INFO:     127.0.0.1:57500 - "GET /sdapi/v1/progress HTTP/1.0" 200 OK
+Loading weights [68f2a15a5e] from /root/stable-diffusion-webui/models/Stable-diffusion/抽象插画风.ckpt
+INFO:     127.0.0.1:57512 - "GET /sdapi/v1/progress HTTP/1.0" 200 OK
+INFO:     127.0.0.1:57520 - "GET /sdapi/v1/progress HTTP/1.0" 200 OK
+INFO:     127.0.0.1:57534 - "GET /sdapi/v1/progress HTTP/1.0" 200 OK
+INFO:     127.0.0.1:57546 - "GET /sdapi/v1/progress HTTP/1.0" 200 OK
+INFO:     127.0.0.1:57554 - "GET /sdapi/v1/progress HTTP/1.0" 200 OK
+Applying cross attention optimization (Doggettx).
+Weights loaded in 5.9s (load weights from disk: 5.7s, apply weights to model: 0.2s).
+INFO:     127.0.0.1:57504 - "POST /sdapi/v1/options HTTP/1.0" 200 OK
+  0%|          | 0/20 [00:00<?, ?it/s]INFO:     127.0.0.1:57566 - "GET /sdapi/v1/progress HTTP/1.0" 200 OK
+
+Total progress: 21it [00:45, 12.90s/it]                        [A  5%|▌         | 1/20 [00:01<00:30,  1.62s/it]INFO:     127.0.0.1:57574 - "GET /sdapi/v1/progress HTTP/1.0" 200 OK
+
+Total progress: 22it [00:45,  9.08s/it][A 10%|█         | 2/20 [00:01<00:13,  1.31it/s]
+Total progress: 23it [00:45,  6.40s/it][A 15%|█▌        | 3/20 [00:01<00:08,  2.05it/s]
+Total progress: 24it [00:46,  4.53s/it][A 20%|██        | 4/20 [00:02<00:06,  2.60it/s]
+Total progress: 25it [00:46,  3.24s/it][A 25%|██▌       | 5/20 [00:02<00:04,  3.33it/s]
+Total progress: 26it [00:46,  2.31s/it][A 30%|███       | 6/20 [00:02<00:03,  4.03it/s]
+Total progress: 27it [00:46,  1.66s/it][A 35%|███▌      | 7/20 [00:02<00:02,  4.65it/s]
+Total progress: 28it [00:46,  1.21s/it][A 40%|████      | 8/20 [00:02<00:02,  5.17it/s]
+Total progress: 29it [00:46,  1.12it/s][A 45%|████▌     | 9/20 [00:02<00:01,  5.59it/s]
+Total progress: 30it [00:46,  1.50it/s][A 50%|█████     | 10/20 [00:03<00:01,  5.90it/s]
+Total progress: 31it [00:47,  1.96it/s][A 55%|█████▌    | 11/20 [00:03<00:01,  6.12it/s]
+Total progress: 32it [00:47,  2.48it/s][A 60%|██████    | 12/20 [00:03<00:01,  6.29it/s]
+Total progress: 33it [00:47,  3.06it/s][A 65%|██████▌   | 13/20 [00:03<00:01,  6.42it/s]
+Total progress: 34it [00:47,  3.65it/s][AINFO:     127.0.0.1:57582 - "GET /sdapi/v1/progress HTTP/1.0" 200 OK
+ 70%|███████   | 14/20 [00:03<00:00,  6.34it/s]
+Total progress: 35it [00:47,  4.17it/s][A 75%|███████▌  | 15/20 [00:03<00:00,  6.48it/s]
+Total progress: 36it [00:47,  4.72it/s][A 80%|████████  | 16/20 [00:03<00:00,  6.58it/s]
+Total progress: 37it [00:48,  5.20it/s][A 85%|████████▌ | 17/20 [00:04<00:00,  6.66it/s]
+Total progress: 38it [00:48,  5.61it/s][A 90%|█████████ | 18/20 [00:04<00:00,  6.76it/s]
+Total progress: 39it [00:48,  5.96it/s][A 95%|█████████▌| 19/20 [00:04<00:00,  6.83it/s]
+Total progress: 40it [00:48,  6.24it/s][A100%|██████████| 20/20 [00:04<00:00,  4.48it/s]
+INFO:     127.0.0.1:57558 - "POST /sdapi/v1/txt2img HTTP/1.0" 200 OK
+INFO:     127.0.0.1:57586 - "GET /sdapi/v1/progress HTTP/1.0" 200 OK
+INFO:     127.0.0.1:57600 - "GET /sdapi/v1/progress HTTP/1.0" 200 OK
+INFO:     127.0.0.1:57614 - "GET /sdapi/v1/progress HTTP/1.0" 200 OK
+INFO:     127.0.0.1:57628 - "GET /sdapi/v1/progress HTTP/1.0" 200 OK
+INFO:     127.0.0.1:57642 - "GET /sdapi/v1/progress HTTP/1.0" 200 OK
+INFO:     127.0.0.1:57662 - "GET /sdapi/v1/progress HTTP/1.0" 200 OK
+INFO:     127.0.0.1:57676 - "GET /sdapi/v1/progress HTTP/1.0" 200 OK
+INFO:     127.0.0.1:57690 - "GET /sdapi/v1/progress HTTP/1.0" 200 OK
+INFO:     127.0.0.1:57704 - "GET /sdapi/v1/progress HTTP/1.0" 200 OK
+INFO:     127.0.0.1:57718 - "GET /sdapi/v1/progress HTTP/1.0" 200 OK
+INFO:     127.0.0.1:57722 - "GET /sdapi/v1/progress HTTP/1.0" 200 OK
+INFO:     127.0.0.1:57726 - "GET /sdapi/v1/progress HTTP/1.0" 200 OK
+INFO:     127.0.0.1:57728 - "GET /sdapi/v1/progress HTTP/1.0" 200 OK
+INFO:     127.0.0.1:57742 - "GET /sdapi/v1/progress HTTP/1.0" 200 OK
+INFO:     127.0.0.1:57744 - "GET /sdapi/v1/progress HTTP/1.0" 200 OK
+INFO:     127.0.0.1:57762 - "GET /sdapi/v1/progress HTTP/1.0" 200 OK
+INFO:     127.0.0.1:57780 - "GET /sdapi/v1/progress HTTP/1.0" 200 OK
+INFO:     127.0.0.1:57794 - "GET /sdapi/v1/progress HTTP/1.0" 200 OK
+INFO:     127.0.0.1:57820 - "GET /sdapi/v1/progress HTTP/1.0" 200 OK
+INFO:     127.0.0.1:57836 - "GET /sdapi/v1/progress HTTP/1.0" 200 OK
+INFO:     127.0.0.1:57854 - "GET /sdapi/v1/progress HTTP/1.0" 200 OK
+INFO:     127.0.0.1:57868 - "GET /sdapi/v1/progress HTTP/1.0" 200 OK
+INFO:     127.0.0.1:57932 - "GET /sdapi/v1/progress HTTP/1.0" 200 OK
+INFO:     127.0.0.1:57962 - "GET /sdapi/v1/progress HTTP/1.0" 200 OK
+INFO:     127.0.0.1:57984 - "GET /sdapi/v1/progress HTTP/1.0" 200 OK
+INFO:     127.0.0.1:58000 - "GET /sdapi/v1/progress HTTP/1.0" 200 OK

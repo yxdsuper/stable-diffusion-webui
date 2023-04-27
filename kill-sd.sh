@@ -7,6 +7,3 @@ if ps aux | grep $process_name | grep -v grep >/dev/null; then
 	else
 		  echo "$process_name is not running"
 fi
-echo "to start $process_name"
-cd /root/stable-diffusion-webui
-COMMANDLINE_ARGS="--nowebui --api --medvram --always-batch-cond-uncond --xformers --port 6006" REQS_FILE="requirements.txt" nohup /root/stable-diffusion-webui/venv/bin/python $process_name 2>&1 >> sd_log.txt &
