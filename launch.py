@@ -389,8 +389,8 @@ class MyStream(io.TextIOWrapper):
                     logger.error(message)
 
 
-sys.stdout = MyStream(sys.stdout, 'info')
-sys.stderr = MyStream(sys.stderr, 'error')
+# sys.stdout = MyStream(sys.stdout, 'info')
+# sys.stderr = MyStream(sys.stderr, 'error')
 
 if __name__ == "__main__":
     # prepare_environment()
