@@ -1,11 +1,11 @@
 import logging
+import multiprocessing
 import os
 from logging.handlers import TimedRotatingFileHandler
 
 logging.basicConfig(level=logging.INFO)
 
-# logger = multiprocessing.get_logger()
-logger = logging.getLogger(__name__)
+logger = multiprocessing.get_logger()
 logger.setLevel(logging.INFO)
 logger.propagate = False
 
