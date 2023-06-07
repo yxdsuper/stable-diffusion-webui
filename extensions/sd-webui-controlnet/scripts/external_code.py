@@ -3,7 +3,7 @@ from typing import List, Any, Optional, Union, Tuple, Dict
 import numpy as np
 from modules import scripts, processing, shared
 from scripts import global_state
-from scripts.processor import preprocessor_sliders_config
+from scripts.processor import preprocessor_sliders_config, model_free_preprocessors
 
 from modules.api import api
 
@@ -31,6 +31,15 @@ class ResizeMode(Enum):
     INNER_FIT = "Crop and Resize"
     OUTER_FIT = "Resize and Fill"
 
+    def int_value(self):
+        if self == ResizeMode.RESIZE:
+            return 0
+        elif self == ResizeMode.INNER_FIT:
+            return 1
+        elif self == ResizeMode.OUTER_FIT:
+            return 2
+        assert False, "NOTREACHED"
+
 
 resize_mode_aliases = {
     'Inner Fit (Scale to Fit)': 'Crop and Resize',
@@ -56,6 +65,57 @@ def control_mode_from_value(value: Union[str, int, ControlMode]) -> ControlMode:
         return [e for e in ControlMode][value]
     else:
         return value
+    
+
+def pixel_perfect_resolution(
+    image: np.ndarray,
+    target_H: int,
+    target_W: int,
+    resize_mode: ResizeMode,
+) -> int:
+    """
+    Calculate the estimated resolution for resizing an image while preserving aspect ratio.
+
+    The function first calculates scaling factors for height and width of the image based on the target 
+    height and width. Then, based on the chosen resize mode, it either takes the smaller or the larger 
+    scaling factor to estimate the new resolution.
+
+    If the resize mode is OUTER_FIT, the function uses the smaller scaling factor, ensuring the whole image 
+    fits within the target dimensions, potentially leaving some empty space. 
+
+    If the resize mode is not OUTER_FIT, the function uses the larger scaling factor, ensuring the target 
+    dimensions are fully filled, potentially cropping the image.
+
+    After calculating the estimated resolution, the function prints some debugging information.
+
+    Args:
+        image (np.ndarray): A 3D numpy array representing an image. The dimensions represent [height, width, channels].
+        target_H (int): The target height for the image.
+        target_W (int): The target width for the image.
+        resize_mode (ResizeMode): The mode for resizing.
+
+    Returns:
+        int: The estimated resolution after resizing.
+    """
+    raw_H, raw_W, _ = image.shape
+
+    k0 = float(target_H) / float(raw_H)
+    k1 = float(target_W) / float(raw_W)
+
+    if resize_mode == ResizeMode.OUTER_FIT:
+        estimation = min(k0, k1) * float(min(raw_H, raw_W))
+    else:
+        estimation = max(k0, k1) * float(min(raw_H, raw_W))
+    
+    print(f"Pixel Perfect Computation:")
+    print(f"resize_mode = {resize_mode}")
+    print(f"raw_H = {raw_H}")
+    print(f"raw_W = {raw_W}")
+    print(f"target_H = {target_H}")
+    print(f"target_W = {target_W}")
+    print(f"estimation = {estimation}")
+
+    return int(np.round(estimation))
 
 
 InputImage = Union[np.ndarray, str]
@@ -68,22 +128,22 @@ class ControlNetUnit:
     """
 
     def __init__(
-            self,
-            enabled: bool = True,
-            module: Optional[str] = None,
-            model: Optional[str] = None,
-            weight: float = 1.0,
-            image: Optional[InputImage] = None,
-            resize_mode: Union[ResizeMode, int, str] = ResizeMode.INNER_FIT,
-            low_vram: bool = False,
-            processor_res: int = 512,
-            threshold_a: float = 64,
-            threshold_b: float = 64,
-            guidance_start: float = 0.0,
-            guidance_end: float = 1.0,
-            pixel_perfect: bool = False,
-            control_mode: Union[ControlMode, int, str] = ControlMode.BALANCED,
-            **_kwargs,
+        self,
+        enabled: bool=True,
+        module: Optional[str]=None,
+        model: Optional[str]=None,
+        weight: float=1.0,
+        image: Optional[InputImage]=None,
+        resize_mode: Union[ResizeMode, int, str] = ResizeMode.INNER_FIT,
+        low_vram: bool=False,
+        processor_res: int=512,
+        threshold_a: float=64,
+        threshold_b: float=64,
+        guidance_start: float=0.0,
+        guidance_end: float=1.0,
+        pixel_perfect: bool=False,
+        control_mode: Union[ControlMode, int, str] = ControlMode.BALANCED,
+        **_kwargs,
     ):
         self.enabled = enabled
         self.module = module
@@ -145,14 +205,14 @@ def get_all_units_from(script_args: List[Any]) -> List[ControlNetUnit]:
     units = []
     i = 0
     while i < len(script_args):
-        if script_args[i] is not None and script_args[i] and not isinstance(script_args[i], str):
+        if script_args[i] is not None:
             units.append(to_processing_unit(script_args[i]))
         i += 1
 
     return units
 
 
-def get_single_unit_from(script_args: List[Any], index: int = 0) -> Optional[ControlNetUnit]:
+def get_single_unit_from(script_args: List[Any], index: int=0) -> Optional[ControlNetUnit]:
     """
     Fetch a single ControlNet processing unit from ControlNet script arguments.
     The list must not contain script positional arguments. It must only contain processing units.
@@ -168,6 +228,13 @@ def get_single_unit_from(script_args: List[Any], index: int = 0) -> Optional[Con
 
     return None
 
+def get_max_models_num():
+    """
+    Fetch the maximum number of allowed ControlNet models. 
+    """
+
+    max_models_num = shared.opts.data.get("control_net_max_models_num", 1)
+    return max_models_num
 
 def to_processing_unit(unit: Union[Dict[str, Any], ControlNetUnit]) -> ControlNetUnit:
     """
@@ -191,8 +258,7 @@ def to_processing_unit(unit: Union[Dict[str, Any], ControlNetUnit]) -> ControlNe
             del unit['mask']
 
         if 'image' in unit and not isinstance(unit['image'], dict):
-            unit['image'] = {'image': unit['image'], 'mask': mask} if mask is not None else unit['image'] if unit[
-                'image'] else None
+            unit['image'] = {'image': unit['image'], 'mask': mask} if mask is not None else unit['image'] if unit['image'] else None
 
         if 'guess_mode' in unit:
             print('Guess Mode is removed since 1.1.136. Please use Control Mode instead.')
@@ -200,14 +266,14 @@ def to_processing_unit(unit: Union[Dict[str, Any], ControlNetUnit]) -> ControlNe
         unit = ControlNetUnit(**unit)
 
     # temporary, check #602
-    # assert isinstance(unit, ControlNetUnit), f'bad argument to controlnet extension: {unit}\nexpected Union[dict[str, Any], ControlNetUnit]'
+    #assert isinstance(unit, ControlNetUnit), f'bad argument to controlnet extension: {unit}\nexpected Union[dict[str, Any], ControlNetUnit]'
     return unit
 
 
 def update_cn_script_in_processing(
-        p: processing.StableDiffusionProcessing,
-        cn_units: List[ControlNetUnit],
-        **_kwargs,  # for backwards compatibility
+    p: processing.StableDiffusionProcessing,
+    cn_units: List[ControlNetUnit],
+    **_kwargs, # for backwards compatibility
 ):
     """
     Update the arguments of the ControlNet script in `p.script_args` in place, reading from `cn_units`.
@@ -225,10 +291,10 @@ def update_cn_script_in_processing(
 
 
 def update_cn_script_in_place(
-        script_runner: scripts.ScriptRunner,
-        script_args: List[Any],
-        cn_units: List[ControlNetUnit],
-        **_kwargs,  # for backwards compatibility
+    script_runner: scripts.ScriptRunner,
+    script_args: List[Any],
+    cn_units: List[ControlNetUnit],
+    **_kwargs, # for backwards compatibility
 ):
     """
     Update the arguments of the ControlNet script in `script_args` in place, reading from `cn_units`.
@@ -258,7 +324,7 @@ def update_cn_script_in_place(
             script.args_to += cn_script_args_diff
 
 
-def get_models(update: bool = False) -> List[str]:
+def get_models(update: bool=False) -> List[str]:
     """
     Fetch the list of available models.
     Each value is a valid candidate of `ControlNetUnit.model`.
@@ -302,18 +368,20 @@ def get_modules_detail(alias_names: bool = False) -> Dict[str, Any]:
     _module_detail = {}
     _module_list = get_modules(False)
     _module_list_alias = get_modules(True)
-
+    
     _output_list = _module_list if not alias_names else _module_list_alias
     for index, module in enumerate(_output_list):
         if _module_list[index] in preprocessor_sliders_config:
             _module_detail[module] = {
+                "model_free": module in model_free_preprocessors,
                 "sliders": preprocessor_sliders_config[_module_list[index]]
             }
         else:
             _module_detail[module] = {
+                "model_free": False,
                 "sliders": []
             }
-
+            
     return _module_detail
 
 

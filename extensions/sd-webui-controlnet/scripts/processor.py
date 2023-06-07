@@ -80,7 +80,7 @@ def threshold(img, res=512, thr_a=127, **kwargs):
     return remove_pad(result), True
 
 
-def inpaint(img, res=512, **kwargs):
+def identity(img, **kwargs):
     return img, True
 
 
@@ -340,12 +340,14 @@ def clip(img, res=512, **kwargs):
     if clip_encoder is None:
         from annotator.clip import apply_clip
         clip_encoder = apply_clip
-    result = clip_encoder(img).squeeze(0)
+    result = clip_encoder(img)
     return result, False
 
 
 def clip_vision_visualization(x):
-    return np.ndarray((x.shape[0] * 4, x.shape[1]), dtype="uint8", buffer=x.detach().cpu().numpy().tobytes())
+    x = x.detach().cpu().numpy()[0]
+    x = np.ascontiguousarray(x).copy()
+    return np.ndarray((x.shape[0] * 4, x.shape[1]), dtype="uint8", buffer=x.tobytes())
 
 
 def unload_clip():
@@ -553,11 +555,17 @@ def shuffle(img, res=512, **kwargs):
     return result, True
 
 
+model_free_preprocessors = [
+    "reference_only",
+    "reference_adain",
+    "reference_adain+attn"
+]
+
 flag_preprocessor_resolution = "Preprocessor Resolution"
 preprocessor_sliders_config = {
-    "none": [
-        
-    ],
+    "none": [],
+    "inpaint": [],
+    "inpaint_only": [],
     "canny": [
         {
             "name": flag_preprocessor_resolution,
@@ -754,6 +762,63 @@ preprocessor_sliders_config = {
             "step": 0.01
         }
     ],
+    "tile_colorfix": [
+        None,
+        {
+            "name": "Variation",
+            "value": 8.0,
+            "min": 3.0,
+            "max": 32.0,
+            "step": 1.0
+        }
+    ],
+    "tile_colorfix+sharp": [
+        None,
+        {
+            "name": "Variation",
+            "value": 8.0,
+            "min": 3.0,
+            "max": 32.0,
+            "step": 1.0
+        },
+        {
+            "name": "Sharpness",
+            "value": 1.0,
+            "min": 0.0,
+            "max": 2.0,
+            "step": 0.01
+        }
+    ],
+    "reference_only": [
+        None,
+        {
+            "name": r'Style Fidelity (only for "Balanced" mode)',
+            "value": 0.5,
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.01
+        }
+    ],
+    "reference_adain": [
+        None,
+        {
+            "name": r'Style Fidelity (only for "Balanced" mode)',
+            "value": 0.5,
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.01
+        }
+    ],
+    "reference_adain+attn": [
+        None,
+        {
+            "name": r'Style Fidelity (only for "Balanced" mode)',
+            "value": 0.5,
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.01
+        }
+    ],
     "color": [
         {
             "name": flag_preprocessor_resolution,
@@ -784,4 +849,23 @@ preprocessor_sliders_config = {
             "step": 0.01
         }
     ],
+}
+
+preprocessor_filters = {
+    "All": "none",
+    "Canny": "canny",
+    "Depth": "depth_midas",
+    "Normal": "normal_bae",
+    "OpenPose": "openpose_full",
+    "MLSD": "mlsd",
+    "Lineart": "lineart_standard (from white bg & black line)",
+    "SoftEdge": "softedge_pidinet",
+    "Scribble": "scribble_pidinet",
+    "Seg": "seg_ofade20k",
+    "Shuffle": "shuffle",
+    "Tile": "tile_resample",
+    "Inpaint": "inpaint_only",
+    "IP2P": "none",
+    "Reference": "reference_only",
+    "T2IA": "none",
 }

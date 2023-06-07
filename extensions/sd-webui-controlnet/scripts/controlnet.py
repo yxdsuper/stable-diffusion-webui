@@ -1,23 +1,17 @@
 import gc
-import inspect
 import os
 from collections import OrderedDict
 from copy import copy
-import base64
-from typing import Union, Dict, Optional, List
+from typing import Dict, Optional, Tuple
 import importlib
-
-import numpy
-import torch
-
 import modules.scripts as scripts
 from modules import shared, devices, script_callbacks, processing, masking, images
 import gradio as gr
-import numpy as np
 
 from einops import rearrange
-from scripts import global_state, hook, external_code, processor, batch_hijack, controlnet_version
+from scripts import global_state, hook, external_code, processor, batch_hijack, controlnet_version, utils
 importlib.reload(processor)
+importlib.reload(utils)
 importlib.reload(global_state)
 importlib.reload(hook)
 importlib.reload(external_code)
@@ -26,16 +20,19 @@ from scripts.cldm import PlugableControlModel
 from scripts.processor import *
 from scripts.adapter import PlugableAdapter
 from scripts.utils import load_state_dict
-from scripts.hook import ControlParams, UnetHook
+from scripts.hook import ControlParams, UnetHook, ControlModelType
+from scripts.controlnet_ui.controlnet_ui_group import ControlNetUiGroup, UiControlNetUnit
 from modules.processing import StableDiffusionProcessingImg2Img, StableDiffusionProcessingTxt2Img
 from modules.images import save_image
-from modules.ui_components import FormRow
+
 import cv2
+import numpy as np
+import torch
+
 from pathlib import Path
 from PIL import Image, ImageFilter, ImageOps
 from scripts.lvminthin import lvmin_thin, nake_nms
-from torchvision.transforms import Resize, InterpolationMode, CenterCrop, Compose
-from scripts.processor import preprocessor_sliders_config, flag_preprocessor_resolution
+from scripts.processor import model_free_preprocessors
 
 gradio_compat = True
 try:
@@ -45,54 +42,6 @@ try:
         gradio_compat = False
 except ImportError:
     pass
-
-# svgsupports
-svgsupport = False
-try:
-    import io
-    import base64
-    from svglib.svglib import svg2rlg
-    from reportlab.graphics import renderPM
-    svgsupport = True
-except ImportError:
-    pass
-
-# Note: Change symbol hints mapping in `javascript/hints.js` when you change the symbol values.
-refresh_symbol = '\U0001f504'       # 🔄
-switch_values_symbol = '\U000021C5' # ⇅
-camera_symbol = '\U0001F4F7'        # 📷
-reverse_symbol = '\U000021C4'       # ⇄
-tossup_symbol = '\u2934'
-trigger_symbol = '\U0001F4A5'  # 💥
-open_symbol = '\U0001F4DD'  # 📝
-
-webcam_enabled = False
-webcam_mirrored = False
-
-global_batch_input_dir = gr.Textbox(
-    label='Controlnet input directory',
-    placeholder='Leave empty to use input directory',
-    **shared.hide_dirs,
-    elem_id='controlnet_batch_input_dir')
-img2img_batch_input_dir = None
-img2img_batch_input_dir_callbacks = []
-img2img_batch_output_dir = None
-img2img_batch_output_dir_callbacks = []
-generate_buttons = {}
-
-txt2img_submit_button = None
-img2img_submit_button = None
-
-
-class ToolButton(gr.Button, gr.components.FormComponent):
-    """Small button with single emoji as text, fits inside gradio forms"""
-
-    def __init__(self, **kwargs):
-        super().__init__(variant="tool", elem_classes=['cnet-toolbutton'], **kwargs)
-
-    def get_block_name(self):
-        return "button"
-
 
 def find_closest_lora_model_name(search: str):
     if not search:
@@ -119,33 +68,6 @@ def swap_img2img_pipeline(p: processing.StableDiffusionProcessingImg2Img):
         setattr(p, k, v)
 
 
-def update_json_download_link(json_string: str, file_name: str) -> Dict:
-    base64_encoded_json = base64.b64encode(json_string.encode('utf-8')).decode('utf-8')
-    data_uri = f'data:application/json;base64,{base64_encoded_json}'
-    style = """ 
-    position: absolute;
-    right: var(--size-2);
-    bottom: calc(var(--size-2) * 4);
-    font-size: x-small;
-    font-weight: bold;
-    padding: 2px;
-
-    box-shadow: var(--shadow-drop);
-    border: 1px solid var(--button-secondary-border-color);
-    border-radius: var(--radius-sm);
-    background: var(--background-fill-primary);
-    height: var(--size-5);
-    color: var(--block-label-text-color);
-    """
-    hint = "Download the pose as .json file"
-    html = f"""<a href='{data_uri}' download='{file_name}' style="{style}" title="{hint}">
-                Json</a>"""
-    return gr.update(
-        value=html,
-        visible=(json_string != '')
-    )
-
-
 global_state.update_cn_models()
 
 
@@ -163,7 +85,7 @@ def image_dict_from_any(image) -> Optional[Dict[str, np.ndarray]]:
 
     if isinstance(image['image'], str):
         if os.path.exists(image['image']):
-            image['image'] = numpy.array(Image.open(image['image'])).astype('uint8')
+            image['image'] = np.array(Image.open(image['image'])).astype('uint8')
         elif image['image']:
             image['image'] = external_code.to_base64_nparray(image['image'])
         else:
@@ -176,7 +98,7 @@ def image_dict_from_any(image) -> Optional[Dict[str, np.ndarray]]:
 
     if isinstance(image['mask'], str):
         if os.path.exists(image['mask']):
-            image['mask'] = numpy.array(Image.open(image['mask'])).astype('uint8')
+            image['mask'] = np.array(Image.open(image['mask'])).astype('uint8')
         elif image['mask']:
             image['mask'] = external_code.to_base64_nparray(image['mask'])
         else:
@@ -187,21 +109,59 @@ def image_dict_from_any(image) -> Optional[Dict[str, np.ndarray]]:
     return image
 
 
-class UiControlNetUnit(external_code.ControlNetUnit):
-    def __init__(
-        self,
-        input_mode: batch_hijack.InputMode = batch_hijack.InputMode.SIMPLE,
-        batch_images: Optional[Union[str, List[external_code.InputImage]]] = None,
-        output_dir: str = '',
-        loopback: bool = False,
-        *args, **kwargs
-    ):
-        super().__init__(*args, **kwargs)
-        self.is_ui = True
-        self.input_mode = input_mode
-        self.batch_images = batch_images
-        self.output_dir = output_dir
-        self.loopback = loopback
+def image_has_mask(input_image: np.ndarray) -> bool:
+    """
+    Determine if an image has an alpha channel (mask) that is not empty.
+
+    The function checks if the input image has three dimensions (height, width, channels), 
+    and if the third dimension (channel dimension) is of size 4 (presumably RGB + alpha). 
+    Then it checks if the maximum value in the alpha channel is greater than 127. This is 
+    presumably to check if there is any non-transparent (or semi-transparent) pixel in the 
+    image. A pixel is considered non-transparent if its alpha value is above 127.
+
+    Args:
+        input_image (np.ndarray): A 3D numpy array representing an image. The dimensions 
+        should represent [height, width, channels].
+
+    Returns:
+        bool: True if the image has a non-empty alpha channel, False otherwise.
+    """    
+    return (
+        input_image.ndim == 3 and 
+        input_image.shape[2] == 4 and 
+        np.max(input_image[:, :, 3]) > 127
+    )
+
+
+def prepare_mask(
+    mask: Image.Image, p: processing.StableDiffusionProcessing
+) -> Image.Image:
+    """
+    Prepare an image mask for the inpainting process.
+
+    This function takes as input a PIL Image object and an instance of the 
+    StableDiffusionProcessing class, and performs the following steps to prepare the mask:
+
+    1. Convert the mask to grayscale (mode "L").
+    2. If the 'inpainting_mask_invert' attribute of the processing instance is True,
+       invert the mask colors.
+    3. If the 'mask_blur' attribute of the processing instance is greater than 0,
+       apply a Gaussian blur to the mask with a radius equal to 'mask_blur'.
+
+    Args:
+        mask (Image.Image): The input mask as a PIL Image object.
+        p (processing.StableDiffusionProcessing): An instance of the StableDiffusionProcessing class 
+                                                   containing the processing parameters.
+
+    Returns:
+        mask (Image.Image): The prepared mask as a PIL Image object.
+    """
+    mask = mask.convert("L")
+    if getattr(p, "inpainting_mask_invert", False):
+        mask = ImageOps.invert(mask)
+    if getattr(p, "mask_blur", 0) > 0:
+        mask = mask.filter(ImageFilter.GaussianBlur(p.mask_blur))
+    return mask
 
 
 class Script(scripts.Script):
@@ -210,16 +170,13 @@ class Script(scripts.Script):
     def __init__(self) -> None:
         super().__init__()
         self.latest_network = None
-        self.preprocessor = global_state.cn_preprocessor_modules
+        self.preprocessor = global_state.cache_preprocessors(global_state.cn_preprocessor_modules)
         self.unloadable = global_state.cn_preprocessor_unloadable
         self.input_image = None
         self.latest_model_hash = ""
-        self.txt2img_w_slider = gr.Slider()
-        self.txt2img_h_slider = gr.Slider()
-        self.img2img_w_slider = gr.Slider()
-        self.img2img_h_slider = gr.Slider()
         self.enabled_units = []
         self.detected_map = []
+        self.post_processors = []
         batch_hijack.instance.process_batch_callbacks.append(self.batch_tab_process)
         batch_hijack.instance.process_batch_each_callbacks.append(self.batch_tab_process_each)
         batch_hijack.instance.postprocess_batch_each_callbacks.insert(0, self.batch_tab_postprocess_each)
@@ -229,34 +186,13 @@ class Script(scripts.Script):
         return "ControlNet"
 
     def show(self, is_img2img):
-        # if is_img2img:
-            # return False
         return scripts.AlwaysVisible
-
-    def after_component(self, component, **kwargs):
-        if component.elem_id == "txt2img_width":
-            self.txt2img_w_slider = component
-            return self.txt2img_w_slider
-        if component.elem_id == "txt2img_height":
-            self.txt2img_h_slider = component
-            return self.txt2img_h_slider
-        if component.elem_id == "img2img_width":
-            self.img2img_w_slider = component
-            return self.img2img_w_slider
-        if component.elem_id == "img2img_height":
-            self.img2img_h_slider = component
-            return self.img2img_h_slider
-
-    def get_module_basename(self, module):
-        if module is None:
-            module = 'none'
-
-        return global_state.reverse_preprocessor_aliases.get(module, module)
 
     def get_threshold_block(self, proc):
         pass
 
-    def get_default_ui_unit(self, is_ui=True):
+    @staticmethod
+    def get_default_ui_unit(is_ui=True):
         cls = UiControlNetUnit if is_ui else external_code.ControlNetUnit
         return cls(
             enabled=False,
@@ -264,371 +200,16 @@ class Script(scripts.Script):
             model="None"
         )
 
-    def uigroup(self, tabname, is_img2img, elem_id_tabname):
-        infotext_fields = []
-        default_unit = self.get_default_ui_unit()
-        with gr.Tabs():
-            with gr.Tab(label='Single Image') as upload_tab:
-                with gr.Row().style(equal_height=True):
-                    input_image = gr.Image(source='upload', brush_radius=20, mirror_webcam=False, type='numpy', tool='sketch', elem_id=f'{elem_id_tabname}_{tabname}_input_image')
-                    # Gradio's magic number. Only 242 works.
-                    with gr.Group(visible=False) as generated_image_group:
-                        generated_image = gr.Image(label="Preprocessor Preview", elem_id=f'{elem_id_tabname}_{tabname}_generated_image').style(height=242)
-                        download_pose_link = gr.HTML(value='', visible=False)
-                        preview_close_button_style = """ 
-                            position: absolute;
-                            right: var(--size-2);
-                            bottom: var(--size-2);
-                            font-size: x-small;
-                            font-weight: bold;
-                            padding: 2px;
-                            cursor: pointer;
-
-                            box-shadow: var(--shadow-drop);
-                            border: 1px solid var(--button-secondary-border-color);
-                            border-radius: var(--radius-sm);
-                            background: var(--background-fill-primary);
-                            height: var(--size-5);
-                            color: var(--block-label-text-color);
-                            """
-                        preview_check_elem_id = f'{elem_id_tabname}_{tabname}_preprocessor_preview'
-                        preview_close_button_js = f"document.querySelector(\'#{preview_check_elem_id} input[type=\\\'checkbox\\\']\').click();"
-                        gr.HTML(value=f'''<a style="{preview_close_button_style}" title="Close Preview" onclick="{preview_close_button_js}">Close</a>''', visible=True)
-
-            with gr.Tab(label='Batch') as batch_tab:
-                batch_image_dir = gr.Textbox(label='Input Directory', placeholder='Leave empty to use img2img batch controlnet input directory', elem_id=f'{elem_id_tabname}_{tabname}_batch_image_dir')
-
-        with gr.Accordion(label='Open New Canvas', visible=False) as create_canvas:
-            canvas_width = gr.Slider(label="New Canvas Width", minimum=256, maximum=1024, value=512, step=64)
-            canvas_height = gr.Slider(label="New Canvas Height", minimum=256, maximum=1024, value=512, step=64)
-            with gr.Row():
-                canvas_create_button = gr.Button(value="Create New Canvas")
-                canvas_cancel_button = gr.Button(value="Cancel")
-
-        with gr.Row():
-            gr.HTML(value='<p>Set the preprocessor to [invert] If your image has white background and black lines.</p>')
-            open_new_canvas_button = ToolButton(value=open_symbol)
-            webcam_enable = ToolButton(value=camera_symbol)
-            webcam_mirror = ToolButton(value=reverse_symbol)
-            send_dimen_button = ToolButton(value=tossup_symbol)
-
-        open_new_canvas_button.click(lambda: gr.Accordion.update(visible=True), inputs=None, outputs=create_canvas)
-        canvas_cancel_button.click(lambda: gr.Accordion.update(visible=False), inputs=None, outputs=create_canvas)
-
-        with FormRow(elem_classes="checkboxes-row", variant="compact"):
-            enabled = gr.Checkbox(label='Enable', value=default_unit.enabled)
-            lowvram = gr.Checkbox(label='Low VRAM', value=default_unit.low_vram)
-            pixel_perfect = gr.Checkbox(label='Pixel Perfect', value=default_unit.pixel_perfect)
-            preprocessor_preview = gr.Checkbox(label='Allow Preview', value=False, elem_id=preview_check_elem_id)
-
-        # infotext_fields.append((enabled, "ControlNet Enabled"))
-
-        def send_dimensions(image):
-            def closesteight(num):
-                rem = num % 8
-                if rem <= 4:
-                    return round(num - rem)
-                else:
-                    return round(num + (8 - rem))
-            if(image):
-                interm = np.asarray(image.get('image'))
-                return closesteight(interm.shape[1]), closesteight(interm.shape[0])
-            else:
-                return gr.Slider.update(), gr.Slider.update()
-
-        def webcam_toggle():
-            global webcam_enabled
-            webcam_enabled = not webcam_enabled
-            return {"value": None, "source": "webcam" if webcam_enabled else "upload", "__type__": "update"}
-
-        def webcam_mirror_toggle():
-            global webcam_mirrored
-            webcam_mirrored = not webcam_mirrored
-            return {"mirror_webcam": webcam_mirrored, "__type__": "update"}
-
-        webcam_enable.click(fn=webcam_toggle, inputs=None, outputs=input_image)
-        webcam_mirror.click(fn=webcam_mirror_toggle, inputs=None, outputs=input_image)
-
-        def refresh_all_models(*inputs):
-            global_state.update_cn_models()
-
-            dd = inputs[0]
-            selected = dd if dd in global_state.cn_models else "None"
-            return gr.Dropdown.update(value=selected, choices=list(global_state.cn_models.keys()))
-
-        with gr.Row():
-            module = gr.Dropdown(global_state.ui_preprocessor_keys, label=f"Preprocessor", value=default_unit.module)
-            trigger_preprocessor = ToolButton(value=trigger_symbol, visible=True)
-            model = gr.Dropdown(list(global_state.cn_models.keys()), label=f"Model", value=default_unit.model)
-            refresh_models = ToolButton(value=refresh_symbol)
-            refresh_models.click(refresh_all_models, model, model)
-
-        with gr.Row():
-            weight = gr.Slider(label=f"Control Weight", value=default_unit.weight, minimum=0.0, maximum=2.0, step=.05)
-            guidance_start = gr.Slider(label="Starting Control Step", value=default_unit.guidance_start, minimum=0.0, maximum=1.0, interactive=True)
-            guidance_end = gr.Slider(label="Ending Control Step", value=default_unit.guidance_end, minimum=0.0, maximum=1.0, interactive=True)
-
-        def build_sliders(module, pp):
-            module = self.get_module_basename(module)
-            if module not in preprocessor_sliders_config:
-                return [
-                    gr.update(label=flag_preprocessor_resolution, value=512, minimum=64, maximum=2048, step=1, visible=not pp, interactive=not pp),
-                    gr.update(visible=False, interactive=False),
-                    gr.update(visible=False, interactive=False),
-                    gr.update(visible=True)
-                ]
-            else:
-                slider_configs = preprocessor_sliders_config[module]
-                grs = []
-
-                for slider_config in slider_configs:
-                    if isinstance(slider_config, dict):
-                        visible = True
-                        if slider_config['name'] == flag_preprocessor_resolution:
-                            visible = not pp
-                        grs.append(gr.update(
-                            label=slider_config['name'],
-                            value=slider_config['value'],
-                            minimum=slider_config['min'],
-                            maximum=slider_config['max'],
-                            step=slider_config['step'] if 'step' in slider_config else 1,
-                            visible=visible,
-                            interactive=visible))
-                    else:
-                        grs.append(gr.update(visible=False, interactive=False))
-
-                while len(grs) < 3:
-                    grs.append(gr.update(visible=False, interactive=False))
-
-                grs.append(gr.update(visible=True))
-                return grs
-
-        # advanced options
-        with gr.Column(visible=False) as advanced:
-            processor_res = gr.Slider(label="Preprocessor resolution", value=default_unit.processor_res, minimum=64, maximum=2048, visible=False, interactive=False)
-            threshold_a = gr.Slider(label="Threshold A", value=default_unit.threshold_a, minimum=64, maximum=1024, visible=False, interactive=False)
-            threshold_b = gr.Slider(label="Threshold B", value=default_unit.threshold_b, minimum=64, maximum=1024, visible=False, interactive=False)
-
-        if gradio_compat:
-            module.change(build_sliders, inputs=[module, pixel_perfect], outputs=[processor_res, threshold_a, threshold_b, advanced])
-            pixel_perfect.change(build_sliders, inputs=[module, pixel_perfect], outputs=[processor_res, threshold_a, threshold_b, advanced])
-
-        # infotext_fields.extend((module, model, weight))
-
-        def svgPreprocess(inputs):
-            if (inputs):
-                if (inputs['image'].startswith("data:image/svg+xml;base64,") and svgsupport):
-                    svg_data = base64.b64decode(inputs['image'].replace('data:image/svg+xml;base64,',''))
-                    drawing = svg2rlg(io.BytesIO(svg_data))
-                    png_data = renderPM.drawToString(drawing, fmt='PNG')
-                    encoded_string = base64.b64encode(png_data)
-                    base64_str = str(encoded_string, "utf-8")
-                    base64_str = "data:image/png;base64,"+ base64_str
-                    inputs['image'] = base64_str
-                return input_image.orgpreprocess(inputs)
-            return None
-
-        def run_annotator(image, module, pres, pthr_a, pthr_b, t2i_w, t2i_h, pp, rm):
-            if image is None:
-                return gr.update(value=None, visible=True), gr.update(), gr.update()
-
-            img = HWC3(image['image'])
-            if not ((image['mask'][:, :, 0] == 0).all() or (image['mask'][:, :, 0] == 255).all()):
-                img = HWC3(image['mask'][:, :, 0])
-
-            if 'inpaint' in module:
-                color = HWC3(image['image'])
-                alpha = image['mask'][:, :, 0:1]
-                img = np.concatenate([color, alpha], axis=2)
-
-            module = self.get_module_basename(module)
-            preprocessor = self.preprocessor[module]
-
-            if pp:
-                raw_H, raw_W, _ = img.shape
-                target_H, target_W = t2i_h, t2i_w
-                rm = str(rm)
-
-                k0 = float(target_H) / float(raw_H)
-                k1 = float(target_W) / float(raw_W)
-
-                if rm == external_code.ResizeMode.OUTER_FIT.value:
-                    estimation = min(k0, k1) * float(min(raw_H, raw_W))
-                else:
-                    estimation = max(k0, k1) * float(min(raw_H, raw_W))
-
-                pres = int(np.round(estimation))
-                print(f'Pixel Perfect Mode Enabled In Preview.')
-                print(f'resize_mode = {rm}')
-                print(f'raw_H = {raw_H}')
-                print(f'raw_W = {raw_W}')
-                print(f'target_H = {target_H}')
-                print(f'target_W = {target_W}')
-                print(f'estimation = {estimation}')
-
-            class JsonAcceptor:
-                def __init__(self) -> None:
-                    self.value = ''
-
-                def accept(self, json_string: str) -> None:
-                    self.value = json_string
-            json_acceptor = JsonAcceptor()
-
-            print(f'Preview Resolution = {pres}')
-            result, is_image = preprocessor(img, res=pres, thr_a=pthr_a, thr_b=pthr_b, json_pose_callback=json_acceptor.accept)
-
-            if preprocessor is processor.clip:
-                result = processor.clip_vision_visualization(result)
-                is_image = True
-
-            if is_image:
-                if result.ndim == 3 and result.shape[2] == 4:
-                    inpaint_mask = result[:, :, 3]
-                    result = result[:, :, 0:3]
-                    result[inpaint_mask > 127] = 0
-                return (
-                    # Update to `generated_image`
-                    gr.update(value=result, visible=True, interactive=False),
-                    # Update to `download_pose_link`
-                    update_json_download_link(json_acceptor.value, 'pose.json'),
-                    # preprocessor_preview
-                    gr.update(value=True)
-                )
-
-            return (
-                # Update to `generated_image`
-                gr.update(value=None, visible=True),
-                # Update to `download_pose_link`
-                update_json_download_link(json_acceptor.value, 'pose.json'),
-                # preprocessor_preview
-                gr.update(value=True)
-            )
-
-        def shift_preview(is_on):
-            return (
-                # generated_image
-                gr.update() if is_on else gr.update(value=None),
-                # generated_image_group
-                gr.update(visible=is_on),
-                # download_pose_link
-                gr.update() if is_on else gr.update(value=None),
-            )
-
-        preprocessor_preview.change(fn=shift_preview, inputs=[preprocessor_preview], 
-                                    outputs=[generated_image, generated_image_group, download_pose_link])
-
-        if is_img2img:
-            send_dimen_button.click(fn=send_dimensions, inputs=[input_image], outputs=[self.img2img_w_slider, self.img2img_h_slider])
-        else:
-            send_dimen_button.click(fn=send_dimensions, inputs=[input_image], outputs=[self.txt2img_w_slider, self.txt2img_h_slider])
-
-        control_mode = gr.Radio(choices=[e.value for e in external_code.ControlMode], value=default_unit.control_mode.value, label="Control Mode")
-
-        resize_mode = gr.Radio(choices=[e.value for e in external_code.ResizeMode], value=default_unit.resize_mode.value, label="Resize Mode")
-
-        loopback = gr.Checkbox(label='[Loopback] Automatically send generated images to this ControlNet unit', value=default_unit.loopback)
-
-        trigger_preprocessor.click(fn=run_annotator, inputs=[
-            input_image, module, processor_res, threshold_a, threshold_b,
-            self.img2img_w_slider if is_img2img else self.txt2img_w_slider,
-            self.img2img_h_slider if is_img2img else self.txt2img_h_slider,
-            pixel_perfect, resize_mode
-        ], outputs=[generated_image, download_pose_link, preprocessor_preview])
-
-        def fn_canvas(h, w):
-            return np.zeros(shape=(h, w, 3), dtype=np.uint8) + 255, gr.Accordion.update(visible=False)
-
-        canvas_create_button.click(fn=fn_canvas, inputs=[canvas_height, canvas_width], outputs=[input_image, create_canvas])
-
-        input_mode = gr.State(batch_hijack.InputMode.SIMPLE)
-        batch_image_dir_state = gr.State('')
-        output_dir_state = gr.State('')
-        unit_args = (input_mode, batch_image_dir_state, output_dir_state, loopback, enabled, module, model, weight, input_image, resize_mode, lowvram, processor_res, threshold_a, threshold_b, guidance_start, guidance_end, pixel_perfect, control_mode)
-        self.register_modules(tabname, unit_args)
-
-        input_image.orgpreprocess=input_image.preprocess
-        input_image.preprocess=svgPreprocess
-
-        unit = gr.State(default_unit)
-        for comp in unit_args:
-            event_subscribers = []
-            if hasattr(comp, 'edit'):
-                event_subscribers.append(comp.edit)
-            elif hasattr(comp, 'click'):
-                event_subscribers.append(comp.click)
-            elif hasattr(comp, 'change'):
-                event_subscribers.append(comp.change)
-
-            if hasattr(comp, 'clear'):
-                event_subscribers.append(comp.clear)
-
-            for event_subscriber in event_subscribers:
-                event_subscriber(fn=UiControlNetUnit, inputs=list(unit_args), outputs=unit)
-
-        # keep input_mode in sync
-        def ui_controlnet_unit_for_input_mode(input_mode, *args):
-            args = list(args)
-            args[0] = input_mode
-            return input_mode, UiControlNetUnit(*args)
-
-        for input_tab in (
-            (upload_tab, batch_hijack.InputMode.SIMPLE),
-            (batch_tab, batch_hijack.InputMode.BATCH)
-        ):
-            input_tab[0].select(fn=ui_controlnet_unit_for_input_mode, inputs=[gr.State(input_tab[1])] + list(unit_args), outputs=[input_mode, unit])
-
-        def determine_batch_dir(batch_dir, fallback_dir, fallback_fallback_dir):
-            if batch_dir:
-                return batch_dir
-            elif fallback_dir:
-                return fallback_dir
-            else:
-                return fallback_fallback_dir
-
-        # keep batch_dir in sync with global batch input textboxes
-        global img2img_batch_input_dir, img2img_batch_input_dir_callbacks
-        def subscribe_for_batch_dir():
-            global global_batch_input_dir, img2img_batch_input_dir
-            batch_dirs = [batch_image_dir, global_batch_input_dir, img2img_batch_input_dir]
-            for batch_dir_comp in batch_dirs:
-                subscriber = getattr(batch_dir_comp, 'blur', None)
-                if subscriber is None: continue
-                subscriber(
-                    fn=determine_batch_dir,
-                    inputs=batch_dirs,
-                    outputs=[batch_image_dir_state],
-                    queue=False,
-                )
-
-        if img2img_batch_input_dir is None:
-            # we are too soon, subscribe later when available
-            img2img_batch_input_dir_callbacks.append(subscribe_for_batch_dir)
-        else:
-            subscribe_for_batch_dir()
-
-        # keep output_dir in sync with global batch output textbox
-        global img2img_batch_output_dir, img2img_batch_output_dir_callbacks
-        def subscribe_for_output_dir():
-            global img2img_batch_output_dir
-            img2img_batch_output_dir.blur(
-                fn=lambda a: a,
-                inputs=[img2img_batch_output_dir],
-                outputs=[output_dir_state],
-                queue=False,
-            )
-
-        if img2img_batch_input_dir is None:
-            # we are too soon, subscribe later when available
-            img2img_batch_output_dir_callbacks.append(subscribe_for_output_dir)
-        else:
-            subscribe_for_output_dir()
-
-        if is_img2img:
-            img2img_submit_button.click(fn=UiControlNetUnit, inputs=list(unit_args), outputs=unit, queue=False)
-        else:
-            txt2img_submit_button.click(fn=UiControlNetUnit, inputs=list(unit_args), outputs=unit, queue=False)
-
-        return unit
+    def uigroup(self, tabname: str, is_img2img: bool, elem_id_tabname: str):
+        group = ControlNetUiGroup(
+            gradio_compat,
+            self.infotext_fields,
+            Script.get_default_ui_unit(),
+            self.preprocessor,
+        )
+        group.render(tabname, elem_id_tabname)
+        group.register_callbacks(is_img2img)
+        return group.render_and_register_unit(tabname, is_img2img)
 
     def ui(self, is_img2img):
         """this function should create gradio UI elements. See https://gradio.app/docs/#components
@@ -656,26 +237,15 @@ class Script(scripts.Script):
                 self.paste_field_names.append(field_name)
 
         return controls
-
-    def register_modules(self, tabname, params):
-        enabled, module, model, weight = params[4:8]
-        guidance_start, guidance_end, pixel_perfect, control_mode = params[-4:]
-
-        self.infotext_fields.extend([
-            (enabled, f"{tabname} Enabled"),
-            (module, f"{tabname} Preprocessor"),
-            (model, f"{tabname} Model"),
-            (weight, f"{tabname} Weight"),
-            (guidance_start, f"{tabname} Guidance Start"),
-            (guidance_end, f"{tabname} Guidance End"),
-        ])
-
-    def clear_control_model_cache(self):
+    
+    @staticmethod
+    def clear_control_model_cache():
         Script.model_cache.clear()
         gc.collect()
         devices.torch_gc()
 
-    def load_control_model(self, p, unet, model, lowvram):
+    @staticmethod
+    def load_control_model(p, unet, model, lowvram):
         if model in Script.model_cache:
             print(f"Loading model from cache: {model}")
             return Script.model_cache[model]
@@ -686,14 +256,18 @@ class Script(scripts.Script):
             gc.collect()
             devices.torch_gc()
 
-        model_net = self.build_control_model(p, unet, model, lowvram)
+        model_net = Script.build_control_model(p, unet, model, lowvram)
 
         if shared.opts.data.get("control_net_model_cache_size", 2) > 0:
             Script.model_cache[model] = model_net
 
         return model_net
 
-    def build_control_model(self, p, unet, model, lowvram):
+    @staticmethod
+    def build_control_model(p, unet, model, lowvram):
+        if model is None or model == 'None':
+            raise RuntimeError(f"You have not selected any ControlNet Model.")
+
         model_path = global_state.cn_models.get(model, None)
         if model_path is None:
             model = find_closest_lora_model_name(model)
@@ -790,8 +364,9 @@ class Script(scripts.Script):
         default_value = get_element(default)
         return attribute_value if attribute_value is not None else default_value
 
-    def parse_remote_call(self, p, unit: external_code.ControlNetUnit, idx):
-        selector = self.get_remote_call
+    @staticmethod
+    def parse_remote_call(p, unit: external_code.ControlNetUnit, idx):
+        selector = Script.get_remote_call
 
         unit.enabled = selector(p, "control_net_enabled", unit.enabled, idx, strict=True)
         unit.module = selector(p, "control_net_module", unit.module, idx)
@@ -811,7 +386,8 @@ class Script(scripts.Script):
 
         return unit
 
-    def detectmap_proc(self, detected_map, module, resize_mode, h, w):
+    @staticmethod
+    def detectmap_proc(detected_map, module, resize_mode, h, w):
 
         if 'inpaint' in module:
             detected_map = detected_map.astype(np.float32)
@@ -835,7 +411,7 @@ class Script(scripts.Script):
             # below is very boring but do not change these. If you change these Apple or Mac may fail.
             y = torch.from_numpy(y)
             y = y.float() / 255.0
-            y = rearrange(y, 'h w c -> c h w')
+            y = rearrange(y, 'h w c -> 1 c h w')
             y = y.clone()
             y = y.to(devices.get_device_for("controlnet"))
             y = y.clone()
@@ -887,7 +463,9 @@ class Script(scripts.Script):
                 y = np.stack([y] * 3, axis=2)
 
             if inpaint_mask is not None:
-                y[inpaint_mask > 127] = - 255
+                inpaint_mask = (inpaint_mask > 127).astype(np.float32) * 255.0
+                inpaint_mask = inpaint_mask[:, :, None].clip(0, 255).astype(np.uint8)
+                y = np.concatenate([y, inpaint_mask], axis=2)
 
             return y
 
@@ -906,8 +484,11 @@ class Script(scripts.Script):
 
         if resize_mode == external_code.ResizeMode.OUTER_FIT:
             k = min(k0, k1)
-            borders = np.concatenate([detected_map[0, :, 0:3], detected_map[-1, :, 0:3], detected_map[:, 0, 0:3], detected_map[:, -1, 0:3]], axis=0)
+            borders = np.concatenate([detected_map[0, :, :], detected_map[-1, :, :], detected_map[:, 0, :], detected_map[:, -1, :]], axis=0)
             high_quality_border_color = np.median(borders, axis=0).astype(detected_map.dtype)
+            if len(high_quality_border_color) == 4:
+                # Inpaint hijack
+                high_quality_border_color[3] = 255
             high_quality_background = np.tile(high_quality_border_color[None, None], [h, w, 1])
             detected_map = high_quality_resize(detected_map, (safeint(old_w * k), safeint(old_h * k)))
             new_h, new_w, _ = detected_map.shape
@@ -927,21 +508,21 @@ class Script(scripts.Script):
             detected_map = safe_numpy(detected_map)
             return get_pytorch_control(detected_map), detected_map
 
-    def is_ui(self, args):
-        return args and all(isinstance(arg, UiControlNetUnit) for arg in args)
-
-    def get_enabled_units(self, p):
+    @staticmethod
+    def get_enabled_units(p):
         units = external_code.get_all_units_in_processing(p)
         enabled_units = []
 
         if len(units) == 0:
             # fill a null group
-            remote_unit = self.parse_remote_call(p, self.get_default_ui_unit(), 0)
+            remote_unit = Script.parse_remote_call(p, Script.get_default_ui_unit(), 0)
             if remote_unit.enabled:
                 units.append(remote_unit)
 
         for idx, unit in enumerate(units):
-            unit = self.parse_remote_call(p, unit, idx)
+            if type(unit) == str or not unit:
+                continue
+            unit = Script.parse_remote_call(p, unit, idx)
             if not unit.enabled:
                 continue
 
@@ -967,19 +548,98 @@ class Script(scripts.Script):
 
         return enabled_units
 
+    @staticmethod
+    def choose_input_image(
+            p: processing.StableDiffusionProcessing, 
+            unit: external_code.ControlNetUnit,
+            idx: int
+        ) -> Tuple[np.ndarray, Optional[external_code.ResizeMode]]:
+        """ Choose input image from following sources with descending priority:
+         - p.image_control: [Deprecated] Lagacy way to pass image to controlnet.
+         - p.control_net_input_image: [Deprecated] Lagacy way to pass image to controlnet.
+         - unit.image: 
+           - ControlNet tab input image.
+           - Input image from API call.
+         - p.init_images: A1111 img2img tab input image.
+
+        Returns:
+            - The input image in ndarray form.
+            - The value to overwrite `resize_mode`.
+        """
+        resize_mode = None
+
+        p_input_image = Script.get_remote_call(p, "control_net_input_image", None, idx)
+        image = image_dict_from_any(unit.image)
+
+        if batch_hijack.instance.is_batch and getattr(p, "image_control", None) is not None:
+            print("Warn: Using legacy field 'p.image_control'.")
+            input_image = HWC3(np.asarray(p.image_control))
+        elif p_input_image is not None:
+            print("Warn: Using legacy field 'p.controlnet_input_image'")
+            if isinstance(p_input_image, dict) and "mask" in p_input_image and "image" in p_input_image:
+                color = HWC3(np.asarray(p_input_image['image']))
+                alpha = np.asarray(p_input_image['mask'])[..., None]
+                input_image = np.concatenate([color, alpha], axis=2)
+            else:
+                input_image = HWC3(np.asarray(p_input_image))
+        elif image is not None:
+            while len(image['mask'].shape) < 3:
+                image['mask'] = image['mask'][..., np.newaxis]
+
+            # Need to check the image for API compatibility
+            if isinstance(image['image'], str):
+                from modules.api.api import decode_base64_to_image
+                input_image = HWC3(np.asarray(decode_base64_to_image(image['image'])))
+            else:
+                input_image = HWC3(image['image'])
+
+            have_mask = 'mask' in image and not ((image['mask'][:, :, 0] == 0).all() or (image['mask'][:, :, 0] == 255).all())
+
+            if 'inpaint' in unit.module:
+                print("using inpaint as input")
+                color = HWC3(image['image'])
+                if have_mask:
+                    alpha = image['mask'][:, :, 0:1]
+                else:
+                    alpha = np.zeros_like(color)[:, :, 0:1]
+                input_image = np.concatenate([color, alpha], axis=2)
+            else:
+                if have_mask:
+                    print("using mask as input")
+                    input_image = HWC3(image['mask'][:, :, 0])
+                    unit.module = 'none'  # Always use black bg and white line
+        else:
+            # use img2img init_image as default
+            input_image = getattr(p, "init_images", [None])[0]
+            if input_image is None:
+                if batch_hijack.instance.is_batch:
+                    shared.state.interrupted = True
+                raise ValueError('controlnet is enabled but no input image is given')
+
+            input_image = HWC3(np.asarray(input_image))
+            a1111_i2i_resize_mode = getattr(p, "resize_mode", None)
+            if a1111_i2i_resize_mode is not None:
+                resize_mode = external_code.resize_mode_from_value(a1111_i2i_resize_mode)
+        
+        assert isinstance(input_image, np.ndarray)
+        return input_image, resize_mode
+    
     def process(self, p, *args):
         """
         This function is called before processing begins for AlwaysVisible scripts.
         You can modify the processing object (p) here, inject hooks, etc.
         args contains all values returned by components from ui()
         """
-        unet = p.sd_model.model.diffusion_model
+
+        sd_ldm = p.sd_model
+        unet = sd_ldm.model.diffusion_model
+
         if self.latest_network is not None:
             # always restore (~0.05s)
             self.latest_network.restore(unet)
 
         if not batch_hijack.instance.is_batch:
-            self.enabled_units = self.get_enabled_units(p)
+            self.enabled_units = Script.get_enabled_units(p)
 
         if len(self.enabled_units) == 0:
            self.latest_network = None
@@ -987,11 +647,12 @@ class Script(scripts.Script):
 
         detected_maps = []
         forward_params = []
+        post_processors = []
         hook_lowvram = False
 
         # cache stuff
         if self.latest_model_hash != p.sd_model.sd_model_hash:
-            self.clear_control_model_cache()
+            Script.clear_control_model_cache()
 
         # unload unused preproc
         module_list = [unit.module for unit in self.enabled_units]
@@ -1001,125 +662,63 @@ class Script(scripts.Script):
 
         self.latest_model_hash = p.sd_model.sd_model_hash
         for idx, unit in enumerate(self.enabled_units):
-            unit.module = self.get_module_basename(unit.module)
-            p_input_image = self.get_remote_call(p, "control_net_input_image", None, idx)
-            image = image_dict_from_any(unit.image)
-            if image is not None and 'mask' in image and image['mask'] is not None:
-                while len(image['mask'].shape) < 3:
-                    image['mask'] = image['mask'][..., np.newaxis]
-
+            unit.module = global_state.get_module_basename(unit.module)
             resize_mode = external_code.resize_mode_from_value(unit.resize_mode)
             control_mode = external_code.control_mode_from_value(unit.control_mode)
 
             if unit.low_vram:
                 hook_lowvram = True
 
-            model_net = self.load_control_model(p, unet, unit.model, unit.low_vram)
-            model_net.reset()
-
-            if batch_hijack.instance.is_batch and getattr(p, "image_control", None) is not None:
-                input_image = HWC3(np.asarray(p.image_control))
-            elif p_input_image is not None:
-                if isinstance(p_input_image, dict) and "mask" in p_input_image and "image" in p_input_image:
-                    color = HWC3(np.asarray(p_input_image['image']))
-                    alpha = np.asarray(p_input_image['mask'])[..., None]
-                    input_image = np.concatenate([color, alpha], axis=2)
-                else:
-                    input_image = HWC3(np.asarray(p_input_image))
-            elif image is not None and image.get('image') is not None:
-                # Need to check the image for API compatibility
-                if isinstance(image['image'], str):
-                    from modules.api.api import decode_base64_to_image
-                    input_image = HWC3(np.asarray(decode_base64_to_image(image['image'])))
-                else:
-                    input_image = HWC3(image['image'])
-
-                have_mask = 'mask' in image and not ((image['mask'][:, :, 0] == 0).all() or (image['mask'][:, :, 0] == 255).all())
-
-                if 'inpaint' in unit.module:
-                    print("using inpaint as input")
-                    color = HWC3(image['image'])
-                    if have_mask:
-                        alpha = image['mask'][:, :, 0:1]
-                    else:
-                        alpha = np.zeros_like(color)[:, :, 0:1]
-                    input_image = np.concatenate([color, alpha], axis=2)
-                else:
-                    if have_mask:
-                        print("using mask as input")
-                        input_image = HWC3(image['mask'][:, :, 0])
-                        unit.module = 'none'  # Always use black bg and white line
+            if unit.module in model_free_preprocessors:
+                model_net = None
             else:
-                # use img2img init_image as default
-                input_image = getattr(p, "init_images", [None])[0]
-                if input_image is None:
-                    if batch_hijack.instance.is_batch:
-                        shared.state.interrupted = True
-                    raise ValueError('controlnet is enabled but no input image is given')
+                model_net = Script.load_control_model(p, unet, unit.model, unit.low_vram)
+                model_net.reset()
 
-                input_image = HWC3(np.asarray(input_image))
-                a1111_i2i_resize_mode = getattr(p, "resize_mode", None)
-                if a1111_i2i_resize_mode is not None:
-                    if a1111_i2i_resize_mode == 0:
-                        resize_mode = external_code.ResizeMode.RESIZE
-                    elif a1111_i2i_resize_mode == 1:
-                        resize_mode = external_code.ResizeMode.INNER_FIT
-                    elif a1111_i2i_resize_mode == 2:
-                        resize_mode = external_code.ResizeMode.OUTER_FIT
-
-            has_mask = False
-            if input_image.ndim == 3:
-                if input_image.shape[2] == 4:
-                    if np.max(input_image[:, :, 3]) > 127:
-                        has_mask = True
-
-            a1111_mask = getattr(p, "image_mask", None)
-            if 'inpaint' in unit.module and not has_mask and a1111_mask is not None:
-                a1111_mask = a1111_mask.convert('L')
-                if getattr(p, "inpainting_mask_invert", False):
-                    a1111_mask = ImageOps.invert(a1111_mask)
-                if getattr(p, "mask_blur", 0) > 0:
-                    a1111_mask = a1111_mask.filter(ImageFilter.GaussianBlur(p.mask_blur))
-                a1111_mask = np.asarray(a1111_mask)
+            input_image, resize_mode_overwrite = Script.choose_input_image(p, unit, idx)
+            if resize_mode_overwrite is not None:
+                resize_mode = resize_mode_overwrite
+            
+            a1111_mask_image : Optional[Image.Image] = getattr(p, "image_mask", None)
+            if 'inpaint' in unit.module and not image_has_mask(input_image) and a1111_mask_image is not None:
+                a1111_mask = np.array(prepare_mask(a1111_mask_image, p))
                 if a1111_mask.ndim == 2:
                     if a1111_mask.shape[0] == input_image.shape[0]:
                         if a1111_mask.shape[1] == input_image.shape[1]:
                             input_image = np.concatenate([input_image[:, :, 0:3], a1111_mask[:, :, None]], axis=2)
-                            input_image = np.ascontiguousarray(input_image.copy()).copy()
                             a1111_i2i_resize_mode = getattr(p, "resize_mode", None)
                             if a1111_i2i_resize_mode is not None:
-                                if a1111_i2i_resize_mode == 0:
-                                    resize_mode = external_code.ResizeMode.RESIZE
-                                elif a1111_i2i_resize_mode == 1:
-                                    resize_mode = external_code.ResizeMode.INNER_FIT
-                                elif a1111_i2i_resize_mode == 2:
-                                    resize_mode = external_code.ResizeMode.OUTER_FIT
+                                resize_mode = external_code.resize_mode_from_value(a1111_i2i_resize_mode)
 
-            if issubclass(type(p), StableDiffusionProcessingImg2Img) and p.inpaint_full_res == True and p.image_mask is not None:
+            if 'reference' not in unit.module and issubclass(type(p), StableDiffusionProcessingImg2Img) \
+                    and p.inpaint_full_res and a1111_mask_image is not None:
+
                 input_image = [input_image[:, :, i] for i in range(input_image.shape[2])]
                 input_image = [Image.fromarray(x) for x in input_image]
 
-                mask = p.image_mask.convert('L')
-                if p.inpainting_mask_invert:
-                    mask = ImageOps.invert(mask)
-                if p.mask_blur > 0:
-                    mask = mask.filter(ImageFilter.GaussianBlur(p.mask_blur))
+                mask = prepare_mask(a1111_mask_image, p)
 
                 crop_region = masking.get_crop_region(np.array(mask), p.inpaint_full_res_padding)
                 crop_region = masking.expand_crop_region(crop_region, p.width, p.height, mask.width, mask.height)
 
-                if resize_mode == external_code.ResizeMode.INNER_FIT:
-                    input_image = [images.resize_image(1, i, mask.width, mask.height) for i in input_image]
-                elif resize_mode == external_code.ResizeMode.OUTER_FIT:
-                    input_image = [images.resize_image(2, i, mask.width, mask.height) for i in input_image]
-                else:
-                    input_image = [images.resize_image(0, i, mask.width, mask.height) for i in input_image]
+                input_image = [
+                    images.resize_image(resize_mode.int_value(), i, mask.width, mask.height) 
+                    for i in input_image
+                ]
 
                 input_image = [x.crop(crop_region) for x in input_image]
-                input_image = [images.resize_image(2, x, p.width, p.height) for x in input_image]
+                input_image = [
+                    images.resize_image(external_code.ResizeMode.OUTER_FIT.int_value(), x, p.width, p.height) 
+                    for x in input_image
+                ]
 
                 input_image = [np.asarray(x)[:, :, 0] for x in input_image]
                 input_image = np.stack(input_image, axis=2)
+
+            if 'inpaint' in unit.module and issubclass(type(p), StableDiffusionProcessingImg2Img) \
+                    and p.inpainting_fill and p.image_mask is not None:
+                print('A1111 inpaint and ControlNet inpaint duplicated. ControlNet support enabled.')
+                unit.module = 'inpaint'
 
             try:
                 tmp_seed = int(p.all_seeds[0] if p.seed == -1 else max(int(p.seed), 0))
@@ -1136,28 +735,17 @@ class Script(scripts.Script):
             preprocessor = self.preprocessor[unit.module]
             h, w, bsz = p.height, p.width, p.batch_size
 
+            h = (h // 8) * 8
+            w = (w // 8) * 8
+
             preprocessor_resolution = unit.processor_res
             if unit.pixel_perfect:
-                raw_H, raw_W, _ = input_image.shape
-                target_H, target_W = p.height, p.width
-
-                k0 = float(target_H) / float(raw_H)
-                k1 = float(target_W) / float(raw_W)
-
-                if resize_mode == external_code.ResizeMode.OUTER_FIT:
-                    estimation = min(k0, k1) * float(min(raw_H, raw_W))
-                else:
-                    estimation = max(k0, k1) * float(min(raw_H, raw_W))
-
-                preprocessor_resolution = int(np.round(estimation))
-
-                print(f'Pixel Perfect Mode Enabled.')
-                print(f'resize_mode = {str(resize_mode)}')
-                print(f'raw_H = {raw_H}')
-                print(f'raw_W = {raw_W}')
-                print(f'target_H = {target_H}')
-                print(f'target_W = {target_W}')
-                print(f'estimation = {estimation}')
+                preprocessor_resolution = external_code.pixel_perfect_resolution(
+                    input_image,
+                    target_H=h,
+                    target_W=w,
+                    resize_mode=resize_mode
+                )
 
             print(f'preprocessor resolution = {preprocessor_resolution}')
             detected_map, is_image = preprocessor(input_image, res=preprocessor_resolution, thr_a=unit.threshold_a, thr_b=unit.threshold_b)
@@ -1175,8 +763,11 @@ class Script(scripts.Script):
                 else:
                     hr_y, hr_x = p.hr_resize_y, p.hr_resize_x
 
+                hr_y = (hr_y // 8) * 8
+                hr_x = (hr_x // 8) * 8
+
                 if is_image:
-                    hr_control, hr_detected_map = self.detectmap_proc(detected_map, unit.module, resize_mode, hr_y, hr_x)
+                    hr_control, hr_detected_map = Script.detectmap_proc(detected_map, unit.module, resize_mode, hr_y, hr_x)
                     detected_maps.append((hr_detected_map, unit.module))
                 else:
                     hr_control = detected_map
@@ -1184,42 +775,95 @@ class Script(scripts.Script):
                 hr_control = None
 
             if is_image:
-                control, detected_map = self.detectmap_proc(detected_map, unit.module, resize_mode, h, w)
+                control, detected_map = Script.detectmap_proc(detected_map, unit.module, resize_mode, h, w)
                 detected_maps.append((detected_map, unit.module))
             else:
                 control = detected_map
                 if unit.module == 'clip_vision':
                     detected_maps.append((processor.clip_vision_visualization(detected_map), unit.module))
 
-            is_vanilla_samplers = p.sampler_name in ["DDIM", "PLMS", "UniPC"]
+            control_model_type = ControlModelType.ControlNet
+
+            if isinstance(model_net, PlugableAdapter):
+                control_model_type = ControlModelType.T2I_Adapter
+
+            if getattr(model_net, "target", None) == "scripts.adapter.StyleAdapter":
+                control_model_type = ControlModelType.T2I_StyleAdapter
+
+            if 'reference' in unit.module:
+                control_model_type = ControlModelType.AttentionInjection
+
+            global_average_pooling = False
+
+            if model_net is not None:
+                if model_net.config.model.params.get("global_average_pooling", False):
+                    global_average_pooling = True
+
+            preprocessor_dict = dict(
+                name=unit.module,
+                preprocessor_resolution=preprocessor_resolution,
+                threshold_a=unit.threshold_a,
+                threshold_b=unit.threshold_b
+            )
 
             forward_param = ControlParams(
                 control_model=model_net,
+                preprocessor=preprocessor_dict,
                 hint_cond=control,
                 weight=unit.weight,
                 guidance_stopped=False,
                 start_guidance_percent=unit.guidance_start,
                 stop_guidance_percent=unit.guidance_end,
                 advanced_weighting=None,
-                is_adapter=isinstance(model_net, PlugableAdapter),
-                is_extra_cond=getattr(model_net, "target", "") == "scripts.adapter.StyleAdapter",
-                global_average_pooling=model_net.config.model.params.get("global_average_pooling", False),
+                control_model_type=control_model_type,
+                global_average_pooling=global_average_pooling,
                 hr_hint_cond=hr_control,
-                batch_size=p.batch_size,
-                instance_counter=0,
-                is_vanilla_samplers=is_vanilla_samplers,
-                cfg_scale=p.cfg_scale,
                 soft_injection=control_mode != external_code.ControlMode.BALANCED,
                 cfg_injection=control_mode == external_code.ControlMode.CONTROL,
             )
             forward_params.append(forward_param)
 
+            if unit.module == 'inpaint_only':
+
+                final_inpaint_feed = hr_control if hr_control is not None else control
+                final_inpaint_feed = final_inpaint_feed.detach().cpu().numpy()
+                final_inpaint_feed = np.ascontiguousarray(final_inpaint_feed).copy()
+                final_inpaint_mask = final_inpaint_feed[0, 3, :, :].astype(np.float32)
+                final_inpaint_raw = final_inpaint_feed[0, :3].astype(np.float32)
+                sigma = 7
+                final_inpaint_mask = cv2.dilate(final_inpaint_mask, np.ones((sigma, sigma), dtype=np.uint8))
+                final_inpaint_mask = cv2.blur(final_inpaint_mask, (sigma, sigma))[None]
+                _, Hmask, Wmask = final_inpaint_mask.shape
+                final_inpaint_raw = torch.from_numpy(np.ascontiguousarray(final_inpaint_raw).copy())
+                final_inpaint_mask = torch.from_numpy(np.ascontiguousarray(final_inpaint_mask).copy())
+
+                def inpaint_only_post_processing(x):
+                    _, H, W = x.shape
+                    if Hmask != H or Wmask != W:
+                        print('Error: ControlNet find post-processing resolution mismatch. This could be related to other extensions hacked processing.')
+                        return x
+                    r = final_inpaint_raw.to(x.dtype).to(x.device)
+                    m = final_inpaint_mask.to(x.dtype).to(x.device)
+                    y = m * x.clip(0, 1) + (1 - m) * r
+                    y = y.clip(0, 1)
+                    return y
+
+                post_processors.append(inpaint_only_post_processing)
+
             del model_net
 
         self.latest_network = UnetHook(lowvram=hook_lowvram)
-        self.latest_network.hook(unet)
-        self.latest_network.notify(forward_params, is_vanilla_samplers)
+        self.latest_network.hook(model=unet, sd_ldm=sd_ldm, control_params=forward_params, process=p)
         self.detected_map = detected_maps
+        self.post_processors = post_processors
+
+    def postprocess_batch(self, p, *args, **kwargs):
+        images = kwargs.get('images', [])
+        for post_processor in self.post_processors:
+            for i in range(images.shape[0]):
+                images[i] = post_processor(images[i])
+        self.post_processors = []
+        return
 
     def postprocess(self, p, processed, *args):
         processor_params_flag = (', '.join(getattr(processed, 'extra_generation_params', []))).lower()
@@ -1247,9 +891,14 @@ class Script(scripts.Script):
                         for detect_map, module in self.detected_map:
                             if detect_map is None:
                                 continue
+                            detect_map = np.ascontiguousarray(detect_map.copy()).copy()
+                            if detect_map.ndim == 3 and detect_map.shape[2] == 4:
+                                inpaint_mask = detect_map[:, :, 3]
+                                detect_map = detect_map[:, :, 0:3]
+                                detect_map[inpaint_mask > 127] = 0
                             processed.images.extend([
                                 Image.fromarray(
-                                    np.ascontiguousarray(detect_map.copy()).copy().clip(0, 255).astype(np.uint8)
+                                    detect_map.clip(0, 255).astype(np.uint8)
                                 )
                             ])
 
@@ -1304,7 +953,7 @@ def on_ui_settings():
     shared.opts.add_option("control_net_modules_path", shared.OptionInfo(
         "", "Path to directory containing annotator model directories (requires restart, overrides corresponding command line flag)", section=section))
     shared.opts.add_option("control_net_max_models_num", shared.OptionInfo(
-        1, "Multi ControlNet: Max models amount (requires restart)", gr.Slider, {"minimum": 1, "maximum": 10, "step": 1}, section=section))
+        3, "Multi ControlNet: Max models amount (requires restart)", gr.Slider, {"minimum": 1, "maximum": 10, "step": 1}, section=section))
     shared.opts.add_option("control_net_model_cache_size", shared.OptionInfo(
         1, "Model cache size (requires restart)", gr.Slider, {"minimum": 1, "maximum": 5, "step": 1}, section=section))
     shared.opts.add_option("control_net_no_detectmap", shared.OptionInfo(
@@ -1319,38 +968,10 @@ def on_ui_settings():
         False, "Show batch images in gradio gallery output", gr.Checkbox, {"interactive": True}, section=section))
     shared.opts.add_option("controlnet_increment_seed_during_batch", shared.OptionInfo(
         False, "Increment seed after each controlnet batch iteration", gr.Checkbox, {"interactive": True}, section=section))
-
-
-def on_after_component(component, **_kwargs):
-    global txt2img_submit_button
-    if getattr(component, 'elem_id', None) == 'txt2img_generate':
-        txt2img_submit_button = component
-        return
-
-    global img2img_submit_button
-    if getattr(component, 'elem_id', None) == 'img2img_generate':
-        img2img_submit_button = component
-        return
-
-    global img2img_batch_input_dir
-    if getattr(component, 'elem_id', None) == 'img2img_batch_input_dir':
-        img2img_batch_input_dir = component
-        for callback in img2img_batch_input_dir_callbacks:
-            callback()
-        return
-
-    global img2img_batch_output_dir
-    if getattr(component, 'elem_id', None) == 'img2img_batch_output_dir':
-        img2img_batch_output_dir = component
-        for callback in img2img_batch_output_dir_callbacks:
-            callback()
-        return
-
-    if getattr(component, 'elem_id', None) == 'img2img_batch_inpaint_mask_dir':
-        global_batch_input_dir.render()
-        return
+    shared.opts.add_option("controlnet_disable_control_type", shared.OptionInfo(
+        False, "Disable control type selection", gr.Checkbox, {"interactive": True}, section=section))
 
 
 batch_hijack.instance.do_hijack()
 script_callbacks.on_ui_settings(on_ui_settings)
-script_callbacks.on_after_component(on_after_component)
+script_callbacks.on_after_component(ControlNetUiGroup.on_after_component)
