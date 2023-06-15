@@ -221,6 +221,9 @@ class Script(scripts.Script):
                     print(f"ignore because weight is 0: {model}")
                     continue
 
+                if model not in lora_models:
+                    model_util.update_models()
+
                 model_path = lora_models.get(model, None)
                 if model_path is None:
                     raise RuntimeError(f"model not found: {model}")
