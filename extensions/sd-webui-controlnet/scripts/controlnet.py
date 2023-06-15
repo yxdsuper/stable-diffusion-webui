@@ -268,6 +268,9 @@ class Script(scripts.Script):
         if model is None or model == 'None':
             raise RuntimeError(f"You have not selected any ControlNet Model.")
 
+        if model not in global_state.cn_models:
+            global_state.update_cn_models()
+
         model_path = global_state.cn_models.get(model, None)
         if model_path is None:
             model = find_closest_lora_model_name(model)
