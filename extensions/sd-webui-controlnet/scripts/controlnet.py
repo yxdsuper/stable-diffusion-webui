@@ -523,7 +523,7 @@ class Script(scripts.Script):
                 units.append(remote_unit)
 
         for idx, unit in enumerate(units):
-            if type(unit) == str or not unit:
+            if type(unit) == str or not unit or type(unit) == bool:
                 continue
             unit = Script.parse_remote_call(p, unit, idx)
             if not unit.enabled:

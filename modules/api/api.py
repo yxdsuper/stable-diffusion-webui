@@ -76,11 +76,11 @@ def encode_pil_to_base64(image):
 
         if opts.samples_format.lower() == 'png':
             use_metadata = False
-            metadata = PngImagePlugin.PngInfo()
-            for key, value in image.info.items():
-                if isinstance(key, str) and isinstance(value, str):
-                    metadata.add_text(key, value)
-                    use_metadata = True
+            # metadata = PngImagePlugin.PngInfo()
+            # for key, value in image.info.items():
+            #     if isinstance(key, str) and isinstance(value, str):
+            #         metadata.add_text(key, value)
+            #         use_metadata = True
             image.save(output_bytes, format="PNG", pnginfo=(metadata if use_metadata else None),
                        quality=opts.jpeg_quality)
 
