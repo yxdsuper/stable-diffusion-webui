@@ -509,6 +509,7 @@ class Api:
         return InterrogateResponse(caption=processed)
 
     def interruptapi(self):
+        print('interruptapi')
         shared.state.interrupt()
 
         return {}
