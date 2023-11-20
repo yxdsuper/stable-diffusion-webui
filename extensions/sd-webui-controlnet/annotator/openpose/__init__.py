@@ -17,23 +17,19 @@ from . import util
 from .body import Body, BodyResult, Keypoint
 from .hand import Hand
 from .face import Face
+from .types import PoseResult, HandResult, FaceResult
 from modules import devices
 from annotator.annotator_path import models_path
 
-from typing import NamedTuple, Tuple, List, Callable, Union
+from typing import Tuple, List, Callable, Union, Optional
 
 body_model_path = "https://huggingface.co/lllyasviel/Annotators/resolve/main/body_pose_model.pth"
 hand_model_path = "https://huggingface.co/lllyasviel/Annotators/resolve/main/hand_pose_model.pth"
 face_model_path = "https://huggingface.co/lllyasviel/Annotators/resolve/main/facenet.pth"
 
-HandResult = List[Keypoint]
-FaceResult = List[Keypoint]
+remote_onnx_det = "https://huggingface.co/yzd-v/DWPose/resolve/main/yolox_l.onnx"
+remote_onnx_pose = "https://huggingface.co/yzd-v/DWPose/resolve/main/dw-ll_ucoco_384.onnx"
 
-class PoseResult(NamedTuple):
-    body: BodyResult
-    left_hand: Union[HandResult, None]
-    right_hand: Union[HandResult, None]
-    face: Union[FaceResult, None]
 
 def draw_poses(poses: List[PoseResult], H, W, draw_body=True, draw_hand=True, draw_face=True):
     """
@@ -65,8 +61,66 @@ def draw_poses(poses: List[PoseResult], H, W, draw_body=True, draw_hand=True, dr
 
     return canvas
 
-def encode_poses_as_json(poses: List[PoseResult], canvas_height: int, canvas_width: int) -> str:
-    """ Encode the pose as a JSON string following openpose JSON output format:
+
+def decode_json_as_poses(json_string: str, normalize_coords: bool = False) -> Tuple[List[PoseResult], int, int]:
+    """ Decode the json_string complying with the openpose JSON output format
+    to poses that controlnet recognizes.
+    https://github.com/CMU-Perceptual-Computing-Lab/openpose/blob/master/doc/02_output.md
+
+    Args:
+        json_string: The json string to decode.
+        normalize_coords: Whether to normalize coordinates of each keypoint by canvas height/width.
+                          `draw_pose` only accepts normalized keypoints. Set this param to True if
+                          the input coords are not normalized.
+    
+    Returns:
+        poses
+        canvas_height
+        canvas_width                      
+    """
+    pose_json = json.loads(json_string)
+    height = pose_json['canvas_height']
+    width = pose_json['canvas_width']
+
+    def chunks(lst, n):
+        """Yield successive n-sized chunks from lst."""
+        for i in range(0, len(lst), n):
+            yield lst[i:i + n]
+    
+    def decompress_keypoints(numbers: Optional[List[float]]) -> Optional[List[Optional[Keypoint]]]:
+        if not numbers:
+            return None
+        
+        assert len(numbers) % 3 == 0
+
+        def create_keypoint(x, y, c):
+            if c < 1.0:
+                return None
+            keypoint = Keypoint(x, y)
+            return keypoint
+
+        return [
+            create_keypoint(x, y, c)
+            for x, y, c in chunks(numbers, n=3)
+        ]
+    
+    return (
+        [
+            PoseResult(
+                body=BodyResult(keypoints=decompress_keypoints(pose.get('pose_keypoints_2d'))),
+                left_hand=decompress_keypoints(pose.get('hand_left_keypoints_2d')),
+                right_hand=decompress_keypoints(pose.get('hand_right_keypoints_2d')),
+                face=decompress_keypoints(pose.get('face_keypoints_2d'))
+            )
+            for pose in pose_json['people']
+        ],
+        height,
+        width,
+    )
+
+
+def encode_poses_as_json(poses: List[PoseResult], canvas_height: int, canvas_width: int) -> dict:
+    """ Encode the pose as a JSON compatible dict following openpose JSON output format:
     https://github.com/CMU-Perceptual-Computing-Lab/openpose/blob/master/doc/02_output.md
     """
     def compress_keypoints(keypoints: Union[List[Keypoint], None]) -> Union[List[float], None]:
@@ -83,7 +137,7 @@ def encode_poses_as_json(poses: List[PoseResult], canvas_height: int, canvas_wid
             )
         ]
 
-    return json.dumps({
+    return {
         'people': [
             {
                 'pose_keypoints_2d': compress_keypoints(pose.body.keypoints),
@@ -95,9 +149,8 @@ def encode_poses_as_json(poses: List[PoseResult], canvas_height: int, canvas_wid
         ],
         'canvas_height': canvas_height,
         'canvas_width': canvas_width,
-    }, indent=4)
-    
-    
+    }
+
 class OpenposeDetector:
     """
     A class for detecting human poses in images using the Openpose model.
@@ -112,6 +165,8 @@ class OpenposeDetector:
         self.body_estimation = None
         self.hand_estimation = None
         self.face_estimation = None
+
+        self.dw_pose_estimation = None
 
     def load_model(self):
         """
@@ -136,10 +191,25 @@ class OpenposeDetector:
         self.body_estimation = Body(body_modelpath)
         self.hand_estimation = Hand(hand_modelpath)
         self.face_estimation = Face(face_modelpath)
+    
+    def load_dw_model(self):
+        from .wholebody import Wholebody # DW Pose
+
+        def load_model(filename: str, remote_url: str):
+            local_path = os.path.join(self.model_dir, filename)
+            if not os.path.exists(local_path):
+                from basicsr.utils.download_util import load_file_from_url
+                load_file_from_url(remote_url, model_dir=self.model_dir)
+            return local_path
+
+        onnx_det = load_model("yolox_l.onnx", remote_onnx_det)
+        onnx_pose  = load_model("dw-ll_ucoco_384.onnx", remote_onnx_pose)
+        self.dw_pose_estimation = Wholebody(onnx_det, onnx_pose)
 
     def unload_model(self):
         """
         Unload the Openpose models by moving them to the CPU.
+        Note: DW Pose models always run on CPU, so no need to `unload` them.
         """
         if self.body_estimation is not None:
             self.body_estimation.model.to("cpu")
@@ -236,10 +306,29 @@ class OpenposeDetector:
                 ), left_hand, right_hand, face))
             
             return results
-        
+    
+    def detect_poses_dw(self, oriImg) -> List[PoseResult]:
+        """
+        Detect poses in the given image using DW Pose:
+        https://github.com/IDEA-Research/DWPose
+
+        Args:
+            oriImg (numpy.ndarray): The input image for pose detection.
+
+        Returns:
+            List[PoseResult]: A list of PoseResult objects containing the detected poses.
+        """
+        from .wholebody import Wholebody # DW Pose
+
+        self.load_dw_model()
+
+        with torch.no_grad():
+            keypoints_info = self.dw_pose_estimation(oriImg.copy())
+            return Wholebody.format_result(keypoints_info)
+
     def __call__(
-            self, oriImg, include_body=True, include_hand=False, include_face=False,
-            json_pose_callback: Callable[[str], None] = None,
+            self, oriImg, include_body=True, include_hand=False, include_face=False, 
+            use_dw_pose=False, json_pose_callback: Callable[[str], None] = None,
         ):
         """
         Detect and draw poses in the given image.
@@ -249,14 +338,19 @@ class OpenposeDetector:
             include_body (bool, optional): Whether to include body keypoints. Defaults to True.
             include_hand (bool, optional): Whether to include hand keypoints. Defaults to False.
             include_face (bool, optional): Whether to include face keypoints. Defaults to False.
+            use_dw_pose (bool, optional): Whether to use DW pose detection algorithm. Defaults to False.
             json_pose_callback (Callable, optional): A callback that accepts the pose JSON string.
 
         Returns:
             numpy.ndarray: The image with detected and drawn poses.
         """
         H, W, _ = oriImg.shape
-        poses = self.detect_poses(oriImg, include_hand, include_face)
+
+        if use_dw_pose:
+            poses = self.detect_poses_dw(oriImg)
+        else:
+            poses = self.detect_poses(oriImg, include_hand, include_face)
+
         if json_pose_callback:
             json_pose_callback(encode_poses_as_json(poses, H, W))
-        return draw_poses(poses, H, W, draw_body=include_body, draw_hand=include_hand, draw_face=include_face) 
-                     
+        return draw_poses(poses, H, W, draw_body=include_body, draw_hand=include_hand, draw_face=include_face)
