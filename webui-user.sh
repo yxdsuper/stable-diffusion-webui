@@ -45,4 +45,4 @@ export COMMANDLINE_ARGS="--xformers --api"
 
 ###########################################
 
-./webui.sh
+#./webui.sh
