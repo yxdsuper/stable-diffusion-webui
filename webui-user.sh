@@ -36,12 +36,14 @@ export COMMANDLINE_ARGS="--xformers --api"
 
 # Fixed git commits
 #export STABLE_DIFFUSION_COMMIT_HASH=""
-#export TAMING_TRANSFORMERS_COMMIT_HASH=""
 #export CODEFORMER_COMMIT_HASH=""
 #export BLIP_COMMIT_HASH=""
 
 # Uncomment to enable accelerated launch
 #export ACCELERATE="True"
+
+# Uncomment to disable TCMalloc
+#export NO_TCMALLOC="True"
 
 ###########################################
 

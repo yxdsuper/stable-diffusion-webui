@@ -2,7 +2,6 @@ import os
 import numpy as np
 import PIL
 import torch
-from PIL import Image
 from torch.utils.data import Dataset, DataLoader, Sampler
 from torchvision import transforms
 from collections import defaultdict
@@ -10,7 +9,7 @@ from random import shuffle, choices
 
 import random
 import tqdm
-from modules import devices, shared
+from modules import devices, shared, images
 import re
 
 from ldm.modules.distributions.distributions import DiagonalGaussianDistribution
@@ -32,7 +31,7 @@ class DatasetEntry:
 
 class PersonalizedBase(Dataset):
     def __init__(self, data_root, width, height, repeats, flip_p=0.5, placeholder_token="*", model=None, cond_model=None, device=None, template_file=None, include_cond=False, batch_size=1, gradient_step=1, shuffle_tags=False, tag_drop_out=0, latent_sampling_method='once', varsize=False, use_weight=False):
-        re_word = re.compile(shared.opts.dataset_filename_word_regex) if len(shared.opts.dataset_filename_word_regex) > 0 else None
+        re_word = re.compile(shared.opts.dataset_filename_word_regex) if shared.opts.dataset_filename_word_regex else None
 
         self.placeholder_token = placeholder_token
 
@@ -61,7 +60,7 @@ class PersonalizedBase(Dataset):
             if shared.state.interrupted:
                 raise Exception("interrupted")
             try:
-                image = Image.open(path)
+                image = images.read(path)
                 #Currently does not work for single color transparency
                 #We would need to read image.info['transparency'] for that
                 if use_weight and 'A' in image.getbands():
@@ -72,7 +71,7 @@ class PersonalizedBase(Dataset):
             except Exception:
                 continue
 
-            text_filename = os.path.splitext(path)[0] + ".txt"
+            text_filename = f"{os.path.splitext(path)[0]}.txt"
             filename = os.path.basename(path)
 
             if os.path.exists(text_filename):
@@ -118,7 +117,7 @@ class PersonalizedBase(Dataset):
                 weight = torch.ones(latent_sample.shape)
             else:
                 weight = None
-            
+
             if latent_sampling_method == "random":
                 entry = DatasetEntry(filename=path, filename_text=filename_text, latent_dist=latent_dist, weight=weight)
             else:

@@ -1,6 +1,5 @@
 import os
 import sys
-import traceback
 from collections import namedtuple
 from pathlib import Path
 import re
@@ -11,15 +10,14 @@ import torch.hub
 from torchvision import transforms
 from torchvision.transforms.functional import InterpolationMode
 
-import modules.shared as shared
-from modules import devices, paths, shared, lowvram, modelloader, errors
+from modules import devices, paths, shared, lowvram, modelloader, errors, torch_utils
 
 blip_image_eval_size = 384
 clip_model_name = 'ViT-L/14'
 
 Category = namedtuple("Category", ["name", "topn", "items"])
 
-re_topn = re.compile(r"\.top(\d+)\.")
+re_topn = re.compile(r"\.top(\d+)$")
 
 def category_types():
     return [f.stem for f in Path(shared.interrogator.content_dir).glob('*.txt')]
@@ -28,11 +26,11 @@ def category_types():
 def download_default_clip_interrogate_categories(content_dir):
     print("Downloading CLIP categories...")
 
-    tmpdir = content_dir + "_tmp"
+    tmpdir = f"{content_dir}_tmp"
     category_types = ["artists", "flavors", "mediums", "movements"]
 
     try:
-        os.makedirs(tmpdir)
+        os.makedirs(tmpdir, exist_ok=True)
         for category_type in category_types:
             torch.hub.download_url_to_file(f"https://raw.githubusercontent.com/pharmapsychotic/clip-interrogator/main/clip_interrogator/data/{category_type}.txt", os.path.join(tmpdir, f"{category_type}.txt"))
         os.rename(tmpdir, content_dir)
@@ -41,7 +39,7 @@ def download_default_clip_interrogate_categories(content_dir):
         errors.display(e, "downloading default CLIP interrogate categories")
     finally:
         if os.path.exists(tmpdir):
-            os.remove(tmpdir)
+            os.removedirs(tmpdir)
 
 
 class InterrogateModels:
@@ -133,7 +131,7 @@ class InterrogateModels:
 
         self.clip_model = self.clip_model.to(devices.device_interrogate)
 
-        self.dtype = next(self.clip_model.parameters()).dtype
+        self.dtype = torch_utils.get_param(self.clip_model).dtype
 
     def send_clip_to_ram(self):
         if not shared.opts.interrogate_keep_models_in_memory:
@@ -160,7 +158,7 @@ class InterrogateModels:
             text_array = text_array[0:int(shared.opts.interrogate_clip_dict_limit)]
 
         top_count = min(top_count, len(text_array))
-        text_tokens = clip.tokenize([text for text in text_array], truncate=True).to(devices.device_interrogate)
+        text_tokens = clip.tokenize(list(text_array), truncate=True).to(devices.device_interrogate)
         text_features = self.clip_model.encode_text(text_tokens).type(self.dtype)
         text_features /= text_features.norm(dim=-1, keepdim=True)
 
@@ -186,12 +184,10 @@ class InterrogateModels:
 
     def interrogate(self, pil_image):
         res = ""
-        shared.state.begin()
-        shared.state.job = 'interrogate'
+        shared.state.begin(job="interrogate")
         try:
-            if shared.cmd_opts.lowvram or shared.cmd_opts.medvram:
-                lowvram.send_everything_to_cpu()
-                devices.torch_gc()
+            lowvram.send_everything_to_cpu()
+            devices.torch_gc()
 
             self.load()
 
@@ -208,17 +204,16 @@ class InterrogateModels:
 
                 image_features /= image_features.norm(dim=-1, keepdim=True)
 
-                for name, topn, items in self.categories():
-                    matches = self.rank(image_features, items, top_count=topn)
+                for cat in self.categories():
+                    matches = self.rank(image_features, cat.items, top_count=cat.topn)
                     for match, score in matches:
                         if shared.opts.interrogate_return_ranks:
                             res += f", ({match}:{score/100:.3f})"
                         else:
-                            res += ", " + match
+                            res += f", {match}"
 
         except Exception:
-            print("Error interrogating", file=sys.stderr)
-            print(traceback.format_exc(), file=sys.stderr)
+            errors.report("Error interrogating", exc_info=True)
             res += "<error>"
 
         self.unload()
